@@ -50,7 +50,7 @@ class ORU_Post_Types {
             'rewrite' => [ 'slug' => 'jobs', 'with_front' => false ],
             'capability_type' => 'post',
             'taxonomies' => [ 'country' ],
-            'has_archive' => false,
+            'has_archive' => true,
             'menu_icon' => 'dashicons-businessman',
         ] );
     }

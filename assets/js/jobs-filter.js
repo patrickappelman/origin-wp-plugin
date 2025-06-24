@@ -12,121 +12,6 @@ document.addEventListener("DOMContentLoaded", () => {
 		};
 	}
 
-	// Initialize Preline Advanced Select
-	const selectFields = ["#language-filter", "#location-filter", "#industry-filter", "#sector-filter", "#status-filter"];
-
-	function initializeSelects() {
-		if (!window.jobsFilter) {
-			console.error("jobsFilter object not defined. Check wp_localize_script.");
-			setupNativeSelects();
-			return;
-		}
-
-		// Check Preline readiness
-		function isPrelineReady() {
-			return window.HSSelect && typeof window.HSSelect === "function" && window.HSStaticMethods && typeof window.HSStaticMethods.autoInit === "function";
-		}
-
-		// Delay initialization to ensure Preline is fully loaded
-		function tryInitialize(attempts = 10, delay = 100) {
-			if (attempts <= 0) {
-				console.warn("Preline failed to load after retries. Using native select.");
-				setupNativeSelects();
-				return;
-			}
-
-			if (isPrelineReady()) {
-				try {
-					window.HSStaticMethods.autoInit(["select"]);
-					selectFields.forEach((selector) => {
-						const element = document.querySelector(selector);
-						if (!element) {
-							console.warn(`Element not found: ${selector}`);
-							return;
-						}
-
-						try {
-							const hsSelect = window.HSSelect.getInstance(element) || new window.HSSelect(element);
-							hsSelect.on(
-								"change",
-								debounce(() => {
-									let value;
-									try {
-										value = hsSelect.getSelected ? hsSelect.getSelected() : [...element.selectedOptions].map((opt) => opt.value);
-									} catch (e) {
-										console.warn(`Failed to get value for ${selector}:`, e.message);
-										value = [...element.selectedOptions].map((opt) => opt.value);
-									}
-									if (!value || (Array.isArray(value) && value.length === 0)) {
-										console.warn(`No valid value for ${selector}`);
-									}
-									debouncedUpdateJobs(1);
-								}, 500)
-							);
-
-							// Handle tag removal via click on "x"
-							element.parentElement.addEventListener("click", (event) => {
-								const removeButton = event.target.closest("[data-remove]");
-								if (removeButton) {
-									const tagElement = removeButton.closest(".hs-select-tag");
-									let tagText = "";
-									if (tagElement) {
-										for (const node of tagElement.childNodes) {
-											if (node.nodeType === Node.TEXT_NODE) {
-												tagText += node.textContent.trim();
-											}
-										}
-									}
-									let valueToRemove = "";
-									if (tagText) {
-										const options = Array.from(element.options);
-										const matchingOption = options.find((opt) => opt.textContent.trim().toLowerCase() === tagText.toLowerCase() || opt.value.toLowerCase() === tagText.toLowerCase());
-										valueToRemove = matchingOption ? matchingOption.value : tagText.toLowerCase();
-									}
-
-									setTimeout(() => {
-										if (valueToRemove) {
-											Array.from(element.options).forEach((option) => {
-												if (option.value.toLowerCase() === valueToRemove.toLowerCase()) {
-													option.selected = false;
-												}
-											});
-										}
-										debouncedUpdateJobs(1);
-									}, 300);
-								}
-							});
-						} catch (e) {
-							console.error(`HSSelect init failed for ${selector}:`, e.message, e.stack);
-						}
-					});
-				} catch (e) {
-					console.error("Preline autoInit failed:", e.message, e.stack);
-					setupNativeSelects();
-				}
-			} else {
-				setTimeout(() => tryInitialize(attempts - 1, delay * 1.5), delay);
-			}
-		}
-
-		// Fallback to native select events
-		function setupNativeSelects() {
-			form.addEventListener("change", (event) => {
-				if (event.target.matches("select")) {
-					const values = [...event.target.selectedOptions].map((opt) => opt.value);
-					if (values.length === 0) {
-						console.warn(`No valid value for ${event.target.id}`);
-					}
-					debouncedUpdateJobs(1);
-				}
-			});
-		}
-
-		tryInitialize();
-	}
-
-	initializeSelects();
-
 	// Debounced updateJobs to prevent rapid requests
 	const debouncedUpdateJobs = debounce((page = 1) => {
 		if (isRequestInProgress) {
@@ -219,32 +104,127 @@ document.addEventListener("DOMContentLoaded", () => {
 					isRequestInProgress = false;
 				});
 		} catch (e) {
-			console.error("debouncedUpdateJobs Error:", e.message, e.stack);
+			console.error("debouncedUpdateJobs Error:", e.message, error.stack);
 			resultsContainer.innerHTML = "<p>Error updating jobs. Please try again.</p>";
 			isRequestInProgress = false;
 		}
 	}, 100);
 
-	const searchInput = document.getElementById("search-filter");
-	if (searchInput) {
-		searchInput.addEventListener(
-			"input",
-			debounce(() => {
-				if (!searchInput.value.trim()) {
-					console.warn("Empty search input.");
+	// Initialize Preline Advanced Select
+	const selectFields = ["#language-filter", "#location-filter", "#industry-filter", "#sector-filter", "#status-filter"];
+
+	function initializeSelects() {
+		if (!window.jobsFilter) {
+			console.error("jobsFilter object not defined. Check wp_localize_script.");
+			setupNativeSelects();
+			return;
+		}
+
+		// Check Preline readiness
+		function isPrelineReady() {
+			return window.HSSelect && typeof window.HSSelect === "function" && window.HSStaticMethods && typeof window.HSStaticMethods.autoInit === "function";
+		}
+
+		// Delay initialization to ensure Preline is fully loaded
+		function tryInitialize(attempts = 10, delay = 100) {
+			if (attempts <= 0) {
+				console.warn("Preline failed to load after retries. Using native select.");
+				setupNativeSelects();
+				return;
+			}
+
+			if (isPrelineReady()) {
+				try {
+					window.HSStaticMethods.autoInit(["select"]);
+					selectFields.forEach((selector) => {
+						const element = document.querySelector(selector);
+						if (!element) {
+							console.warn(`Element not found: ${selector}`);
+							return;
+						}
+
+						try {
+							const hsSelect = window.HSSelect.getInstance(element) || new window.HSSelect(element);
+							hsSelect.on(
+								"change",
+								debounce(() => {
+									let value;
+									try {
+										value = hsSelect.getSelected ? hsSelect.getSelected() : [...element.selectedOptions].map((opt) => opt.value);
+									} catch (e) {
+										console.warn(`Failed to get value for ${selector}:`, e.message);
+										value = [...element.selectedOptions].map((opt) => opt.value);
+									}
+									if (!value || (Array.isArray(value) && value.length === 0)) {
+										console.warn(`No valid value for ${selector}`);
+									}
+									debouncedUpdateJobs(1);
+								}, 500)
+							);
+
+							// Handle tag removal via click on "x"
+							element.parentElement.addEventListener("click", (event) => {
+								const removeButton = event.target.closest("[data-remove]");
+								if (removeButton) {
+									const tagElement = removeButton.closest(".hs-select-tag");
+									let tagText = "";
+									if (tagElement) {
+										for (const node of tagElement.childNodes) {
+											if (node.nodeType === Node.TEXT_NODE) {
+												tagText += node.textContent.trim();
+											}
+										}
+									}
+									let valueToRemove = "";
+									if (tagText) {
+										const options = Array.from(element.options);
+										const matchingOption = options.find((opt) => opt.textContent.trim().toLowerCase() === tagText.toLowerCase() || opt.value.toLowerCase() === tagText.toLowerCase());
+										valueToRemove = matchingOption ? matchingOption.value : tagText.toLowerCase();
+									}
+
+									setTimeout(() => {
+										if (valueToRemove) {
+											Array.from(element.options).forEach((option) => {
+												if (option.value.toLowerCase() === valueToRemove.toLowerCase()) {
+													option.selected = false;
+												}
+											});
+										}
+										debouncedUpdateJobs(1);
+									}, 300);
+								}
+							});
+						} catch (e) {
+							console.error(`HSSelect init failed for ${selector}:`, e.message, e.stack);
+						}
+					});
+
+					// Trigger initial update on page load
+					debouncedUpdateJobs(1);
+				} catch (e) {
+					console.error("Preline autoInit failed:", e.message, e.stack);
+					setupNativeSelects();
 				}
-				debouncedUpdateJobs(1);
-			}, 500)
-		);
+			} else {
+				setTimeout(() => tryInitialize(attempts - 1, delay * 1.5), delay);
+			}
+		}
+
+		// Fallback to native select events
+		function setupNativeSelects() {
+			form.addEventListener("change", (event) => {
+				if (event.target.matches("select")) {
+					const values = [...event.target.selectedOptions].map((opt) => opt.value);
+					if (values.length === 0) {
+						console.warn(`No valid value for ${event.target.id}`);
+					}
+					debouncedUpdateJobs(1);
+				}
+			});
+		}
+
+		tryInitialize();
 	}
 
-	document.addEventListener("click", (event) => {
-		const link = event.target.closest(".pagination a");
-		if (link) {
-			event.preventDefault();
-			const pageMatch = link.href.match(/page=(\d+)/);
-			const page = pageMatch ? parseInt(pageMatch[1], 10) : 1;
-			debouncedUpdateJobs(page);
-		}
-	});
+	initializeSelects();
 });

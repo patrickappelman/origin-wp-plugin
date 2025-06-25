@@ -38,13 +38,13 @@ class ORU_Zoho_API {
 		}
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		error_log( 'Zoho API Test Response: ' . print_r( $body, true ) );
-		if ( isset( $body['data'] ) && !empty( $body['data'] ) ) {
+		if ( isset( $body['data'] ) && ! empty( $body['data'] ) ) {
 			error_log( 'Zoho API Test Sample Job: ' . print_r( $body['data'][0], true ) );
 			$result = [
 				'count' => count( $body['data'] ),
 				'sample_job' => [],
 			];
-			if ( !empty( $body['data'][0] ) ) {
+			if ( ! empty( $body['data'][0] ) ) {
 				foreach ( $body['data'][0] as $key => $value ) {
 					if ( is_scalar( $value ) || ( is_array( $value ) && array_walk_recursive( $value, function( $v ) { return is_scalar( $v ); } ) ) ) {
 						$result['sample_job'][$key] = $value;

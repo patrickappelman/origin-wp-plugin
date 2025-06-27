@@ -10,10 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ORU_Zoho_Auth {
 	public function get_credentials() {
 		$settings = get_option( 'zoho_recruit_settings', [] );
-		$current_host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'origin-recruitment:8890';
-		$redirect_uri = ( defined( 'WP_LOCAL_DEV' ) && WP_LOCAL_DEV && $current_host !== 'origin-recruitment:8890' )
-			? rtrim( ( isset( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http' ) . '://' . $current_host, '/' ) . '/wp-admin/admin.php?page=zoho-recruit-auth-callback'
-			: ( isset( $settings['redirect_uri'] ) && !empty( $settings['redirect_uri'] ) ? $settings['redirect_uri'] : ZOHO_RECRUIT_REDIRECT_URI );
+		$redirect_uri = isset( $settings['redirect_uri'] ) && !empty( $settings['redirect_uri'] ) 
+			? $settings['redirect_uri'] 
+			: ZOHO_RECRUIT_REDIRECT_URI;
 		error_log( 'Zoho Redirect URI: ' . $redirect_uri );
 		return [
 			'client_id' => $settings['client_id'] ?? '',
@@ -31,13 +30,13 @@ class ORU_Zoho_Auth {
 		$scopes = [ 'ZohoRecruit.modules.ALL' ];
 		$query_params = [
 			'client_id' => rawurlencode( $credentials['client_id'] ),
-			'redirect_uri' => rawurlencode( $credentials['redirect_uri'] ),
+			'redirect_uri' => $credentials['redirect_uri'], // Avoid double-encoding
 			'response_type' => 'code',
 			'scope' => implode( ',', $scopes ),
 			'access_type' => 'offline',
 			'prompt' => 'consent',
 		];
-		$query_string = http_build_query( $query_params );
+		$query_string = http_build_query( $query_params, '', '&', PHP_QUERY_RFC3986 );
 		$auth_url = 'https://accounts.zoho.eu/oauth/v2/auth?' . $query_string;
 		error_log( 'Zoho Auth URL: ' . $auth_url );
 		return $auth_url;
@@ -54,7 +53,7 @@ class ORU_Zoho_Auth {
 			'body' => [
 				'client_id' => $credentials['client_id'],
 				'client_secret' => $credentials['client_secret'],
-				'redirect_uri' => $credentials['redirect_uri'],
+				'redirect_uri' => $credentials['redirect_uri'], // Avoid encoding here too
 				'code' => $auth_code,
 				'grant_type' => 'authorization_code',
 			],

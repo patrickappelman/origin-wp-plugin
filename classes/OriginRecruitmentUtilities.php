@@ -17,6 +17,7 @@ class OriginRecruitmentUtilities {
 	private $zoho_api;
 	private $zoho_sync;
 	private $admin_settings;
+	private $candidate_registration;
 
 	private function __construct() {
 		// Initialize classes
@@ -27,6 +28,9 @@ class OriginRecruitmentUtilities {
 		$this->zoho_api = new ORU_Zoho_API( $this->zoho_auth );
 		$this->zoho_sync = new ORU_Zoho_Sync( $this->zoho_api, $this->sanitization );
 		$this->admin_settings = new ORU_Admin_Settings( $this->zoho_auth, $this->zoho_api, $this->zoho_sync );
+		$this->candidate_registration = new ORU_Candidate_Registration( $this->zoho_api, $this->sanitization );
+
+		error_log( 'OriginRecruitmentUtilities: Constructor called, all classes initialized including ORU_Candidate_Registration' );
 
 		// Register cron schedules
 		add_filter( 'cron_schedules', [ $this, 'add_cron_schedule' ] );

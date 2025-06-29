@@ -113,6 +113,83 @@ class ORU_Zoho_API {
 		}
 	}
 
+	public function search_candidate_by_email( $email ) {
+		$access_token = $this->get_access_token();
+		if ( is_wp_error( $access_token ) ) {
+			error_log( 'Zoho Search Candidate Error: ' . $access_token->get_error_message() );
+			return $access_token;
+		}
+		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
+		$endpoint = $api_base_url . 'Candidates/search?criteria=(Email:equals:' . urlencode( $email ) . ')';
+		error_log( 'Zoho Search Candidate Request: ' . $endpoint );
+		$response = wp_remote_get( $endpoint, [
+			'headers' => [
+				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+			],
+			'timeout' => 30,
+		]);
+		if ( is_wp_error( $response ) ) {
+			error_log( 'Zoho Search Candidate Error: ' . $response->get_error_message() );
+			return $response;
+		}
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		error_log( 'Zoho Search Candidate Response: Code=' . $response_code . ', Body=' . print_r( $body, true ) );
+		if ( $response_code !== 200 ) {
+			$error_message = $body['message'] ?? 'HTTP ' . $response_code;
+			error_log( 'Zoho Search Candidate Error: ' . $error_message );
+			return new WP_Error( 'api_error', $error_message );
+		}
+		if ( isset( $body['data'] ) && ! empty( $body['data'] ) ) {
+			error_log( 'Zoho Search Candidate Found: ' . print_r( $body['data'][0], true ) );
+			return [
+				'id' => $body['data'][0]['id'] ?? '',
+				'candidate_id' => $body['data'][0]['Candidate_ID'] ?? '',
+			];
+		}
+		error_log( 'Zoho Search Candidate: No candidate found for email ' . $email );
+		return null;
+	}
+
+	public function create_candidate( $candidate_data ) {
+		$access_token = $this->get_access_token();
+		if ( is_wp_error( $access_token ) ) {
+			error_log( 'Zoho Create Candidate Error: ' . $access_token->get_error_message() );
+			return $access_token;
+		}
+		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
+		$endpoint = $api_base_url . 'Candidates';
+		error_log( 'Zoho Create Candidate Request: ' . $endpoint . ' with data: ' . print_r( $candidate_data, true ) );
+		$response = wp_remote_post( $endpoint, [
+			'headers' => [
+				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+				'Content-Type' => 'application/json',
+			],
+			'body' => json_encode( [ 'data' => [ $candidate_data ] ] ),
+			'timeout' => 30,
+		]);
+		if ( is_wp_error( $response ) ) {
+			error_log( 'Zoho Create Candidate Error: ' . $response->get_error_message() );
+			return $response;
+		}
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		error_log( 'Zoho Create Candidate Response: Code=' . $response_code . ', Body=' . print_r( $body, true ) );
+		if ( $response_code !== 201 ) {
+			$error_message = $body['message'] ?? 'HTTP ' . $response_code;
+			error_log( 'Zoho Create Candidate Error: ' . $error_message );
+			return new WP_Error( 'api_error', $error_message );
+		}
+		if ( isset( $body['data'][0]['details']['id'] ) ) {
+			return [
+				'id' => $body['data'][0]['details']['id'],
+				'candidate_id' => $body['data'][0]['details']['Candidate_ID'] ?? '',
+			];
+		}
+		error_log( 'Zoho Create Candidate Error: No candidate ID returned' );
+		return new WP_Error( 'no_data', 'No candidate ID returned from Zoho.' );
+	}
+
 	public function get_job_by_id( $zoho_id, $access_token ) {
 		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
 		$endpoint = $api_base_url . 'Job_Openings/' . $zoho_id;

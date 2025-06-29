@@ -30,6 +30,7 @@ class ORU_Taxonomies {
 				],
 				'slug' => 'languages',
 				'meta_box_cb' => 'post_tags_meta_box',
+				'hierarchical' => false,
 			],
 			'country' => [
 				'labels' => [
@@ -47,6 +48,7 @@ class ORU_Taxonomies {
 				],
 				'slug' => 'locations',
 				'meta_box_cb' => 'post_tags_meta_box',
+				'hierarchical' => false,
 			],
 			'industry' => [
 				'labels' => [
@@ -64,6 +66,7 @@ class ORU_Taxonomies {
 				],
 				'slug' => 'industries',
 				'meta_box_cb' => 'post_categories_meta_box',
+				'hierarchical' => false,
 			],
 			'sector' => [
 				'labels' => [
@@ -81,13 +84,32 @@ class ORU_Taxonomies {
 				],
 				'slug' => 'sectors',
 				'meta_box_cb' => 'post_categories_meta_box',
+				'hierarchical' => false,
+			],
+			'skill' => [
+				'labels' => [
+					'name' => _x( 'Skills', 'taxonomy general name' ),
+					'singular_name' => _x( 'Skill', 'taxonomy singular name' ),
+					'search_items' => __( 'Search Skills' ),
+					'all_items' => __( 'All Skills' ),
+					'parent_item' => __( 'Parent Skill' ),
+					'parent_item_colon' => __( 'Parent Skill:' ),
+					'edit_item' => __( 'Edit Skill' ),
+					'update_item' => __( 'Update Skill' ),
+					'add_new_item' => __( 'Add New Skill' ),
+					'new_item_name' => 'New Skill Name',
+					'menu_name' => __( 'Skills' ),
+				],
+				'slug' => 'skills',
+				'meta_box_cb' => 'post_tags_meta_box',
+				'hierarchical' => false,
 			],
 		];
 
 		foreach ( $taxonomies as $taxonomy => $args ) {
 			register_taxonomy( $taxonomy, [ 'post', 'page', 'job' ], [
 				'labels' => $args['labels'],
-				'hierarchical' => false,
+				'hierarchical' => $args['hierarchical'],
 				'show_ui' => true,
 				'show_in_menu' => true,
 				'show_in_rest' => true,

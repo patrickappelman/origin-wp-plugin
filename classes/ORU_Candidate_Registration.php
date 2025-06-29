@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for handling candidate registration and Zoho syncing.
+ * Path: wp-content/plugins/origin-recruitment-utilities/inc/ORU_Candidate_Registration.php
  */
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -15,6 +16,7 @@ class ORU_Candidate_Registration {
 		$this->sanitization = $sanitization;
 		add_action( 'oru_profile_updated', [ $this, 'sync_candidate_to_zoho' ], 10, 1 );
 		add_action( 'init', [ $this, 'handle_resume_download' ] );
+		add_action( 'init', [ $this, 'handle_cover_letter_download' ] );
 		error_log( 'ORU_Candidate_Registration: Constructor called, hooks registered' );
 	}
 
@@ -40,7 +42,7 @@ class ORU_Candidate_Registration {
 
 		$user_id = get_current_user_id();
 		$resume_url = get_user_meta( $user_id, 'resume_url', true );
-		$stored_candidate_id = get_user_meta( $user_id, 'zoho_candidate_id', true );
+		$stored_candidate_id = get_user_meta( $user_id, 'candidate_id', true );
 
 		if ( empty( $resume_url ) ) {
 			error_log( 'Zoho Resume Download Error: No resume found for user ID ' . $user_id );
@@ -62,7 +64,7 @@ class ORU_Candidate_Registration {
 		}
 
 		error_log( 'Zoho Resume Download: Triggered for user ID ' . $user_id . ', candidate ID ' . $candidate_id . ', attachment ID ' . $attachment_id );
-		$result = $this->download_attachment( $candidate_id, $attachment_id );
+		$result = $this->download_attachment( $candidate_id, $attachment_id, 'resume' );
 		if ( is_wp_error( $result ) ) {
 			error_log( 'Zoho Resume Download Error: ' . $result->get_error_message() );
 			wp_die( 'Download failed: ' . esc_html( $result->get_error_message() ), 'Error', [ 'response' => 500 ] );
@@ -70,25 +72,77 @@ class ORU_Candidate_Registration {
 		// download_attachment exits on success
 	}
 
-	public function upload_attachment( $candidate_id, $resume_path ) {
+	public function handle_cover_letter_download() {
+		if ( ! isset( $_GET['action'] ) || $_GET['action'] !== 'download_cover_letter' ) {
+			return;
+		}
+
+		if ( ! is_user_logged_in() ) {
+			error_log( 'Zoho Cover Letter Download Error: User not logged in' );
+			wp_die( 'Please log in to download your cover letter.', 'Unauthorized', [ 'response' => 401 ] );
+		}
+
+		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( $_GET['_wpnonce'], 'download_cover_letter' ) ) {
+			error_log( 'Zoho Cover Letter Download Error: Invalid or missing nonce' );
+			wp_die( 'Invalid request.', 'Unauthorized', [ 'response' => 403 ] );
+		}
+
+		if ( ! empty( $_GET['candidate_id'] ) || ! empty( $_GET['attachment_id'] ) ) {
+			error_log( 'Zoho Cover Letter Download Error: Query parameters candidate_id or attachment_id not allowed' );
+			wp_die( 'Invalid request.', 'Unauthorized', [ 'response' => 403 ] );
+		}
+
+		$user_id = get_current_user_id();
+		$cover_letter_url = get_user_meta( $user_id, 'cover_letter_url', true );
+		$stored_candidate_id = get_user_meta( $user_id, 'candidate_id', true );
+
+		if ( empty( $cover_letter_url ) ) {
+			error_log( 'Zoho Cover Letter Download Error: No cover letter found for user ID ' . $user_id );
+			wp_die( 'No cover letter available for download.', 'Not Found', [ 'response' => 404 ] );
+		}
+
+		$parts = explode( '/', rtrim( $cover_letter_url, '/' ) );
+		$attachment_id = end( $parts );
+		$candidate_id = count( $parts ) >= 3 ? $parts[count( $parts ) - 3] : '';
+
+		if ( ! ctype_digit( $candidate_id ) || ! ctype_digit( $attachment_id ) ) {
+			error_log( 'Zoho Cover Letter Download Error: Invalid cover_letter_url format for user ID ' . $user_id . ': ' . $cover_letter_url );
+			wp_die( 'Invalid cover letter data.', 'Bad Request', [ 'response' => 400 ] );
+		}
+
+		if ( ! current_user_can( 'manage_options' ) && $candidate_id !== $stored_candidate_id ) {
+			error_log( 'Zoho Cover Letter Download Error: Unauthorized access for user ID ' . $user_id );
+			wp_die( 'Unauthorized access.', 'Forbidden', [ 'response' => 403 ] );
+		}
+
+		error_log( 'Zoho Cover Letter Download: Triggered for user ID ' . $user_id . ', candidate ID ' . $candidate_id . ', attachment ID ' . $attachment_id );
+		$result = $this->download_attachment( $candidate_id, $attachment_id, 'cover_letter' );
+		if ( is_wp_error( $result ) ) {
+			error_log( 'Zoho Cover Letter Download Error: ' . $result->get_error_message() );
+			wp_die( 'Download failed: ' . esc_html( $result->get_error_message() ), 'Error', [ 'response' => 500 ] );
+		}
+		// download_attachment exits on success
+	}
+
+	public function upload_attachment( $candidate_id, $attachment_path, $attachment_category = 'Resume' ) {
 		$access_token = $this->zoho_api->get_access_token();
 		if ( is_wp_error( $access_token ) ) {
-			error_log( 'Zoho Attachment Upload Error: ' . $access_token->get_error_message() );
+			error_log( "Zoho {$attachment_category} Upload Error: " . $access_token->get_error_message() );
 			return $access_token;
 		}
 		$endpoint = 'https://recruit.zoho.eu/recruit/v2/Candidates/' . $candidate_id . '/Attachments';
 		$boundary = '----WebKitFormBoundary' . uniqid();
-		$file_name = basename( $resume_path );
-		$file_content = file_get_contents( $resume_path );
+		$file_name = basename( $attachment_path );
+		$file_content = file_get_contents( $attachment_path );
 		$body = "--$boundary\r\n";
 		$body .= "Content-Disposition: form-data; name=\"attachments_category\"\r\n\r\n";
-		$body .= "Resume\r\n";
+		$body .= "$attachment_category\r\n";
 		$body .= "--$boundary\r\n";
 		$body .= "Content-Disposition: form-data; name=\"file\"; filename=\"$file_name\"\r\n";
 		$body .= "Content-Type: application/pdf\r\n\r\n";
 		$body .= $file_content . "\r\n";
 		$body .= "--$boundary--\r\n";
-		error_log( 'Zoho Attachment Upload Request: ' . $endpoint . ' with body size: ' . strlen( $body ) . ' bytes' );
+		error_log( "Zoho {$attachment_category} Upload Request: " . $endpoint . ' with body size: ' . strlen( $body ) . ' bytes' );
 		$response = wp_remote_post( $endpoint, [
 			'headers' => [
 				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
@@ -98,21 +152,21 @@ class ORU_Candidate_Registration {
 			'timeout' => 30,
 		] );
 		if ( is_wp_error( $response ) ) {
-			error_log( 'Zoho Attachment Upload Error: ' . $response->get_error_message() );
+			error_log( "Zoho {$attachment_category} Upload Error: " . $response->get_error_message() );
 			return $response;
 		}
 		$response_code = wp_remote_retrieve_response_code( $response );
 		$body_response = json_decode( wp_remote_retrieve_body( $response ), true );
-		error_log( 'Zoho Attachment Upload Response: Code=' . $response_code . ', Body=' . print_r( $body_response, true ) );
+		error_log( "Zoho {$attachment_category} Upload Response: Code=" . $response_code . ', Body=' . print_r( $body_response, true ) );
 		if ( $response_code === 201 || ($response_code === 200 && isset( $body_response['data'][0]['status'] ) && $body_response['data'][0]['status'] === 'success')) {
 			return $body_response;
 		}
 		$error_message = isset($body_response['data'][0]['message']) ? $body_response['data'][0]['message'] : 'HTTP ' . $response_code;
-		error_log( 'Zoho Attachment Upload Error: ' . $error_message );
+		error_log( "Zoho {$attachment_category} Upload Error: " . $error_message );
 		return new WP_Error( 'api_error', $error_message );
 	}
 
-	public function download_attachment( $candidate_id, $attachment_id ) {
+	public function download_attachment( $candidate_id, $attachment_id, $attachment_type = 'resume' ) {
 		$access_token = $this->zoho_api->get_access_token();
 		if ( is_wp_error( $access_token ) ) {
 			error_log( 'Zoho Attachment Download Error: ' . $access_token->get_error_message() );
@@ -142,7 +196,7 @@ class ORU_Candidate_Registration {
 		}
 		// Stream the file to the browser
 		header( 'Content-Type: application/pdf' );
-		header( 'Content-Disposition: attachment; filename="resume_' . $candidate_id . '.pdf"' );
+		header( 'Content-Disposition: attachment; filename="' . $attachment_type . '_' . $candidate_id . '.pdf"' );
 		header( 'Content-Length: ' . strlen( $body ) );
 		echo $body;
 		exit;
@@ -223,6 +277,112 @@ class ORU_Candidate_Registration {
 		}
 		error_log( "Zoho Attachment Delete Error: Exhausted retries for attachment ID $attachment_id, candidate ID $candidate_id" );
 		return new WP_Error( 'api_error', 'Failed to delete resume attachment after retries' );
+	}
+
+	private function delete_existing_cover_letter( $candidate_id ) {
+		$access_token = $this->zoho_api->get_access_token();
+		if ( is_wp_error( $access_token ) ) {
+			error_log( 'Zoho Attachment List Error: Failed to get access token: ' . $access_token->get_error_message() );
+			return new WP_Error( 'auth_error', 'Failed to get access token: ' . $access_token->get_error_message() );
+		}
+		$endpoint = 'https://recruit.zoho.eu/recruit/v2/Candidates/' . $candidate_id . '/Attachments';
+		error_log( 'Zoho Attachment List Request: ' . $endpoint );
+		$response = wp_remote_get( $endpoint, [
+			'headers' => [
+				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+			],
+			'timeout' => 30,
+		] );
+		if ( is_wp_error( $response ) ) {
+			error_log( 'Zoho Attachment List Error: Failed to fetch attachments: ' . $response->get_error_message() );
+			return new WP_Error( 'api_error', 'Failed to fetch attachments: ' . $response->get_error_message() );
+		}
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		error_log( 'Zoho Attachment List Response: Code=' . $response_code . ', Body=' . print_r( $body, true ) );
+		if ( $response_code !== 200 ) {
+			$error_message = $body['message'] ?? 'HTTP ' . $response_code;
+			error_log( "Zoho Attachment List Error: Failed to fetch attachments for candidate ID $candidate_id: $error_message" );
+			return new WP_Error( 'api_error', "Failed to fetch attachments: $error_message" );
+		}
+		if ( empty( $body['data'] ) ) {
+			error_log( "Zoho Attachment List: No attachments found for candidate ID $candidate_id" );
+			return true; // No attachments, proceed with upload
+		}
+		$cover_letter_attachment = null;
+		foreach ( $body['data'] as $attachment ) {
+			$category = isset( $attachment['Category']['name'] ) ? $attachment['Category']['name'] : '';
+			$filename = isset( $attachment['File_Name'] ) ? $attachment['File_Name'] : '';
+			error_log( "Zoho Attachment List: Checking attachment ID {$attachment['id']}, Category=$category, Filename=$filename" );
+			if ( $category === 'Cover Letter' || stripos( $filename, 'cover_letter' ) !== false ) {
+				$cover_letter_attachment = $attachment;
+				break;
+			}
+		}
+		if ( ! $cover_letter_attachment ) {
+			error_log( "Zoho Attachment List: No cover letter attachment found for candidate ID $candidate_id" );
+			return true; // No cover letter attachment, proceed with upload
+		}
+		$attachment_id = $cover_letter_attachment['id'];
+		$delete_endpoint = "https://recruit.zoho.eu/recruit/v2/Candidates/$candidate_id/Attachments/$attachment_id";
+		$max_retries = 2;
+		$retry_count = 0;
+		while ( $retry_count < $max_retries ) {
+			error_log( "Zoho Attachment Delete Request: $delete_endpoint (Attempt " . ( $retry_count + 1 ) . " of $max_retries)" );
+			$delete_response = wp_remote_request( $delete_endpoint, [
+				'method' => 'DELETE',
+				'headers' => [
+					'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+				],
+				'timeout' => 30,
+			] );
+			$delete_response_code = wp_remote_retrieve_response_code( $delete_response );
+			$delete_body = json_decode( wp_remote_retrieve_body( $delete_response ), true );
+			error_log( "Zoho Attachment Delete Response: Code=$delete_response_code, Body=" . print_r( $delete_body, true ) );
+			if ( $delete_response_code === 200 ) {
+				error_log( "Zoho Attachment Delete Success: Deleted cover letter attachment ID $attachment_id for candidate ID $candidate_id" );
+				return true;
+			}
+			$error_message = $delete_body['message'] ?? 'HTTP ' . $delete_response_code;
+			error_log( "Zoho Attachment Delete Error: Failed to delete cover letter attachment ID $attachment_id for candidate ID $candidate_id: $error_message (Attempt " . ( $retry_count + 1 ) . ")" );
+			if ( $delete_response_code >= 500 ) {
+				$retry_count++;
+				sleep( 1 ); // Wait before retrying
+				continue;
+			}
+			return new WP_Error( 'api_error', "Failed to delete cover letter attachment: $error_message" );
+		}
+		error_log( "Zoho Attachment Delete Error: Exhausted retries for attachment ID $attachment_id, candidate ID $candidate_id" );
+		return new WP_Error( 'api_error', 'Failed to delete cover letter attachment after retries' );
+	}
+
+	private function get_candidate_by_id( $candidate_id ) {
+		$access_token = $this->zoho_api->get_access_token();
+		if ( is_wp_error( $access_token ) ) {
+			error_log( 'Zoho Get Candidate Error: Failed to get access token: ' . $access_token->get_error_message() );
+			return new WP_Error( 'auth_error', 'Failed to get access token: ' . $access_token->get_error_message() );
+		}
+		$endpoint = 'https://recruit.zoho.eu/recruit/v2/Candidates/' . $candidate_id;
+		error_log( 'Zoho Get Candidate Request: ' . $endpoint );
+		$response = wp_remote_get( $endpoint, [
+			'headers' => [
+				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+			],
+			'timeout' => 30,
+		] );
+		if ( is_wp_error( $response ) ) {
+			error_log( 'Zoho Get Candidate Error: ' . $response->get_error_message() );
+			return $response;
+		}
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		error_log( 'Zoho Get Candidate Response: Code=' . $response_code . ', Body=' . print_r( $body, true ) );
+		if ( $response_code !== 200 || empty( $body['data'] ) ) {
+			$error_message = $body['message'] ?? 'HTTP ' . $response_code;
+			error_log( 'Zoho Get Candidate Error: Invalid response or no data: ' . $error_message );
+			return new WP_Error( 'api_error', 'Invalid response or no data: ' . $error_message );
+		}
+		return $body;
 	}
 
 	public function sync_candidate_to_zoho( $user_id ) {
@@ -333,6 +493,7 @@ class ORU_Candidate_Registration {
 		}
 
 		$zoho_id = null;
+		$zoho_candidate_id = '';
 		if ( ! is_wp_error( $existing_candidate ) && isset( $existing_candidate['id'] ) && isset( $existing_candidate['candidate_id'] ) ) {
 			$zoho_id = $existing_candidate['id'];
 			if ( isset( $candidate_data['Skill_Set'] ) ) {
@@ -358,12 +519,20 @@ class ORU_Candidate_Registration {
 				error_log( 'Zoho Candidate Sync Error: Failed to update candidate for user ID ' . $user_id . ': ' . $result->get_error_message() );
 				return;
 			}
-			update_user_meta( $user_id, 'zoho_candidate_id', $existing_candidate['id'] );
-			update_user_meta( $user_id, 'zoho_candidate_custom_id', $existing_candidate['candidate_id'] );
-			$acf_result1 = update_field( 'candidate_id', $existing_candidate['candidate_id'], 'user_' . $user_id );
-			$acf_result2 = update_field( 'id', $existing_candidate['id'], 'user_' . $user_id );
-			error_log( 'Zoho Candidate Sync: ACF update results for user ID ' . $user_id . ': candidate_id=' . var_export( $acf_result1, true ) . ', id=' . var_export( $acf_result2, true ) );
+			update_user_meta( $user_id, 'id', $existing_candidate['id'] );
+			update_user_meta( $user_id, 'candidate_id', $existing_candidate['candidate_id'] );
+			$acf_result1 = update_field( 'field_candidate_id', $existing_candidate['candidate_id'], 'user_' . $user_id );
+			$acf_result2 = update_field( 'field_id', (string) $existing_candidate['id'], 'user_' . $user_id );
+			error_log( 'Zoho Candidate Sync: ACF update results for existing candidate, user ID ' . $user_id . ': candidate_id=' . var_export( $acf_result1, true ) . ', id=' . var_export( $acf_result2, true ) );
+			$stored_candidate_id = get_field( 'field_candidate_id', 'user_' . $user_id );
+			$stored_id = get_field( 'field_id', 'user_' . $user_id );
+			error_log( 'Zoho Candidate Sync: Verified ACF fields for user ID ' . $user_id . ': candidate_id=' . var_export( $stored_candidate_id, true ) . ', id=' . var_export( $stored_id, true ) );
+			$meta_candidate_id = get_user_meta( $user_id, 'candidate_id', true );
+			$meta_id = get_user_meta( $user_id, 'id', true );
+			error_log( 'Zoho Candidate Sync: Verified wp_usermeta for user ID ' . $user_id . ': candidate_id=' . var_export( $meta_candidate_id, true ) . ', id=' . var_export( $meta_id, true ) );
 			error_log( 'Zoho Candidate Sync Success: Updated existing candidate for user ID ' . $user_id . ': Zoho ID ' . $existing_candidate['id'] . ', Candidate_ID ' . $existing_candidate['candidate_id'] );
+			$zoho_id = $existing_candidate['id'];
+			$zoho_candidate_id = $existing_candidate['candidate_id'];
 		} else {
 			error_log( 'Zoho Candidate Sync: No existing candidate found for email ' . $email . ', attempting to create new candidate' );
 			$result = $this->zoho_api->create_candidate( $candidate_data );
@@ -371,35 +540,58 @@ class ORU_Candidate_Registration {
 				error_log( 'Zoho Candidate Sync Error: Failed to create candidate for user ID ' . $user_id . ': ' . $result->get_error_message() );
 				return;
 			}
-			if ( isset( $result['data'][0]['details']['id'] ) ) {
-				$zoho_id = $result['data'][0]['details']['id'];
-				$zoho_candidate_id = $result['data'][0]['details']['Candidate_ID'] ?? '';
-				update_user_meta( $user_id, 'zoho_candidate_id', $zoho_id );
-				update_user_meta( $user_id, 'zoho_candidate_custom_id', $zoho_candidate_id );
-				$acf_result1 = update_field( 'candidate_id', $zoho_candidate_id, 'user_' . $user_id );
-				$acf_result2 = update_field( 'id', $zoho_id, 'user_' . $user_id );
-				error_log( 'Zoho Candidate Sync: ACF update results for user ID ' . $user_id . ': candidate_id=' . var_export( $acf_result1, true ) . ', id=' . var_export( $acf_result2, true ) );
-				error_log( 'Zoho Candidate Sync Success: Created new candidate for user ID ' . $user_id . ': Zoho ID ' . $zoho_id . ', Candidate_ID ' . $zoho_candidate_id );
+			if ( isset( $result['id'] ) ) {
+				$zoho_id = $result['id'];
+				$zoho_candidate_id = $result['candidate_id'] ?? '';
+				if ( empty( $zoho_candidate_id ) ) {
+					error_log( 'Zoho Candidate Sync: Candidate_ID missing for user ID ' . $user_id . ', attempting to fetch via GET' );
+					$full_candidate = $this->get_candidate_by_id( $zoho_id );
+					if ( ! is_wp_error( $full_candidate ) && isset( $full_candidate['data'][0]['Candidate_ID'] ) ) {
+						$zoho_candidate_id = $full_candidate['data'][0]['Candidate_ID'];
+						error_log( 'Zoho Candidate Sync: Successfully fetched Candidate_ID ' . $zoho_candidate_id . ' for user ID ' . $user_id . ' via GET request' );
+					} else {
+						$error_message = is_wp_error( $full_candidate ) ? $full_candidate->get_error_message() : 'No Candidate_ID in GET response';
+						error_log( 'Zoho Candidate Sync Warning: Failed to fetch Candidate_ID for user ID ' . $user_id . ': ' . $error_message );
+					}
+				} else {
+					error_log( 'Zoho Candidate Sync: Candidate_ID ' . $zoho_candidate_id . ' retrieved from POST response for user ID ' . $user_id );
+				}
 			} else {
 				error_log( 'Zoho Candidate Sync Error: No candidate ID returned from Zoho for user ID ' . $user_id . ': Response=' . print_r( $result, true ) );
 				return;
 			}
 		}
 
+		// Save candidate data regardless of Candidate_ID retrieval
+		if ( $zoho_id ) {
+			update_user_meta( $user_id, 'id', $zoho_id );
+			update_user_meta( $user_id, 'candidate_id', $zoho_candidate_id );
+			$acf_result1 = update_field( 'field_candidate_id', $zoho_candidate_id, 'user_' . $user_id );
+			$acf_result2 = update_field( 'field_id', (string) $zoho_id, 'user_' . $user_id );
+			error_log( 'Zoho Candidate Sync: ACF update results for user ID ' . $user_id . ': candidate_id=' . var_export( $acf_result1, true ) . ', id=' . var_export( $acf_result2, true ) );
+			$stored_candidate_id = get_field( 'field_candidate_id', 'user_' . $user_id );
+			$stored_id = get_field( 'field_id', 'user_' . $user_id );
+			error_log( 'Zoho Candidate Sync: Verified ACF fields for user ID ' . $user_id . ': candidate_id=' . var_export( $stored_candidate_id, true ) . ', id=' . var_export( $stored_id, true ) );
+			$meta_candidate_id = get_user_meta( $user_id, 'candidate_id', true );
+			$meta_id = get_user_meta( $user_id, 'id', true );
+			error_log( 'Zoho Candidate Sync: Verified wp_usermeta for user ID ' . $user_id . ': candidate_id=' . var_export( $meta_candidate_id, true ) . ', id=' . var_export( $meta_id, true ) );
+			error_log( 'Zoho Candidate Sync Success: Processed candidate for user ID ' . $user_id . ': Zoho ID ' . $zoho_id . ', Candidate_ID ' . ($zoho_candidate_id ?: 'not retrieved') );
+		}
+
+		// Handle resume upload
 		$resume_path = get_user_meta( $user_id, '_temp_resume_path', true );
 		if ( $resume_path && file_exists( $resume_path ) && $zoho_id ) {
 			$delete_result = $this->delete_existing_resume( $zoho_id );
 			if ( is_wp_error( $delete_result ) ) {
 				error_log( 'Zoho Candidate Sync Error: Failed to delete existing resume for user ID ' . $user_id . ': ' . $delete_result->get_error_message() );
-				return;
 			}
-			$upload_response = $this->upload_attachment( $zoho_id, $resume_path );
+			$upload_response = $this->upload_attachment( $zoho_id, $resume_path, 'Resume' );
 			if ( ! is_wp_error( $upload_response ) && isset( $upload_response['data'][0]['details']['id'] ) ) {
 				$file_id = $upload_response['data'][0]['details']['id'];
 				$attachment_url = 'https://recruit.zoho.eu/recruit/v2/Candidates/' . $zoho_id . '/Attachments/' . $file_id;
 				update_user_meta( $user_id, 'resume_url', $attachment_url );
-				if (file_exists($resume_path)) {
-					if (unlink( $resume_path )) {
+				if ( file_exists( $resume_path ) ) {
+					if ( unlink( $resume_path ) ) {
 						error_log( 'Zoho Candidate Sync: Deleted temporary resume file for user ID ' . $user_id . ': ' . $resume_path );
 					} else {
 						error_log( 'Zoho Candidate Sync Warning: Failed to delete temporary resume file for user ID ' . $user_id . ': ' . $resume_path );
@@ -410,6 +602,33 @@ class ORU_Candidate_Registration {
 			} else {
 				$error_message = is_wp_error( $upload_response ) ? $upload_response->get_error_message() : print_r( $upload_response, true );
 				error_log( 'Zoho Candidate Sync Error: Failed to upload resume for user ID ' . $user_id . ': ' . $error_message );
+			}
+		}
+
+		// Handle cover letter upload (optional)
+		$cover_letter_path = get_user_meta( $user_id, '_temp_cover_letter_path', true );
+		if ( $cover_letter_path && file_exists( $cover_letter_path ) && $zoho_id ) {
+			$delete_result = $this->delete_existing_cover_letter( $zoho_id );
+			if ( is_wp_error( $delete_result ) ) {
+				error_log( 'Zoho Candidate Sync Error: Failed to delete existing cover letter for user ID ' . $user_id . ': ' . $delete_result->get_error_message() );
+			}
+			$upload_response = $this->upload_attachment( $zoho_id, $cover_letter_path, 'Cover Letter' );
+			if ( ! is_wp_error( $upload_response ) && isset( $upload_response['data'][0]['details']['id'] ) ) {
+				$file_id = $upload_response['data'][0]['details']['id'];
+				$attachment_url = 'https://recruit.zoho.eu/recruit/v2/Candidates/' . $zoho_id . '/Attachments/' . $file_id;
+				update_user_meta( $user_id, 'cover_letter_url', $attachment_url );
+				if ( file_exists( $cover_letter_path ) ) {
+					if ( unlink( $cover_letter_path ) ) {
+						error_log( 'Zoho Candidate Sync: Deleted temporary cover letter file for user ID ' . $user_id . ': ' . $cover_letter_path );
+					} else {
+						error_log( 'Zoho Candidate Sync Warning: Failed to delete temporary cover letter file for user ID ' . $user_id . ': ' . $cover_letter_path );
+					}
+				}
+				delete_user_meta( $user_id, '_temp_cover_letter_path' );
+				error_log( 'Zoho Candidate Sync: Cover letter uploaded for user ID ' . $user_id . ' to Zoho ID ' . $zoho_id . ', URL: ' . $attachment_url );
+			} else {
+				$error_message = is_wp_error( $upload_response ) ? $upload_response->get_error_message() : print_r( $upload_response, true );
+				error_log( 'Zoho Candidate Sync Error: Failed to upload cover letter for user ID ' . $user_id . ': ' . $error_message );
 			}
 		}
 	}
@@ -454,3 +673,4 @@ class ORU_Candidate_Registration {
 		return new WP_Error( 'no_data', 'No candidate ID returned from Zoho.' );
 	}
 }
+?>

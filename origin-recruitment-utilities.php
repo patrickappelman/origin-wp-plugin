@@ -2,7 +2,7 @@
 /*
  * Plugin Name: Origin Recruitment - Utilities
  * Description: A custom plugin developed for Origin Recruitment by Appelman Designs to augment WordPress to include a Jobs post type, as well as custom tag taxonomy such as Languages, Countries, and Industries.
- * Version: 1.0.12
+ * Version: 1.0.14
  * Author: Appelman Designs
  * Author URI: https://appelmandesigns.com/
  */
@@ -24,11 +24,12 @@ require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_API.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_Sync.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Admin_Settings.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Registration.php';
+require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Application.php';
 
 // Initialize the plugin
 OriginRecruitmentUtilities::get_instance();
 
-// Register assets
+// Register assets for job filtering (archive page)
 add_action( 'wp_enqueue_scripts', 'jobs_filter_enqueue_assets', 20 );
 function jobs_filter_enqueue_assets() {
 	if ( is_post_type_archive( 'job' ) ) {
@@ -41,7 +42,25 @@ function jobs_filter_enqueue_assets() {
 		);
 		wp_localize_script( 'jobs-filter', 'jobsFilter', [
 			'ajaxurl' => admin_url( 'admin-ajax.php' ),
-			'nonce' => wp_create_nonce( 'jobs_filter_nonce' )
+			'nonce' => wp_create_nonce( 'jobs_filter_nonce' ),
+		] );
+	}
+}
+
+// Register assets for job application (single job page)
+add_action( 'wp_enqueue_scripts', 'job_application_enqueue_assets', 20 );
+function job_application_enqueue_assets() {
+	if ( is_singular( 'job' ) ) {
+		wp_enqueue_script(
+			'job-application',
+			plugin_dir_url( __FILE__ ) . 'assets/js/job-application.js',
+			[ 'ourmainjs' ],
+			null,
+			true
+		);
+		wp_localize_script( 'job-application', 'jobApplication', [
+			'ajaxurl' => admin_url( 'admin-ajax.php' ),
+			'application_nonce' => wp_create_nonce( 'oru_submit_application_nonce' ),
 		] );
 	}
 }
@@ -129,12 +148,35 @@ function jobs_filter_callback() {
 		}
 	}
 
+	// Fetch all applications for the logged-in user
+	$applications = [];
+	$user_id = get_current_user_id();
+	$zoho_candidate_id = $user_id ? get_user_meta( $user_id, 'id', true ) : '';
+	if ( $user_id && $zoho_candidate_id ) {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'job_applications';
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT zoho_job_id, zoho_application_status FROM $table_name WHERE zoho_candidate_id = %d",
+				$zoho_candidate_id
+			),
+			ARRAY_A
+		);
+		if ( $results ) {
+			foreach ( $results as $row ) {
+				$applications[$row['zoho_job_id']] = $row['zoho_application_status'];
+			}
+		}
+	}
+
 	try {
 		$query = new WP_Query( $args );
 		ob_start();
 		if ( $query->have_posts() ) :
 			while ( $query->have_posts() ) : $query->the_post();
 				$job_status = get_field( 'job_opening_status' );
+				$zoho_job_id = get_field( 'id' );
+				$application_status = isset( $applications[$zoho_job_id] ) ? $applications[$zoho_job_id] : '';
 				$arr_job_status = [
 					'In-progress' => [ 'alert-type' => 'success', 'can-apply' => true, 'msg' => 'This job is now accepting applications.' ],
 					'Filled' => [ 'alert-type' => 'danger', 'can-apply' => false, 'msg' => 'This job has been filled.' ],
@@ -148,6 +190,10 @@ function jobs_filter_callback() {
 					<?php if ( ! $arr_job_status[$job_status]['can-apply'] ) : ?>
 						<div class="alert-soft alert-soft--<?php echo esc_attr( $arr_job_status[$job_status]['alert-type'] ); ?> mb-half" role="alert" tabindex="-1" aria-labelledby="job-status-label">
 							<span id="job-status-label" class="font-bold">Job Status:</span> <?php echo esc_html( $arr_job_status[$job_status]['msg'] ); ?>
+						</div>
+					<?php elseif ( $application_status ) : ?>
+						<div class="alert-soft alert-soft--success mb-half" role="alert" tabindex="-1" aria-labelledby="application-status-label">
+							<span id="application-status-label" class="font-bold">Application Status:</span> Applied
 						</div>
 					<?php endif; ?>
 					<div class="job-listing__meta-row"><time datetime="<?php echo get_the_date( 'Y-m-d' ); ?>">Posted on <?php echo get_the_date( 'F j, Y' ); ?></time></div>
@@ -206,7 +252,9 @@ function jobs_filter_callback() {
 					</ul>
 					<div>
 						<?php if ( $arr_job_status[$job_status]['can-apply'] ) : ?>
-							<a href="<?php echo esc_url( get_the_permalink() ); ?>#Apply" class="button mr-2.5"><i class="fa-solid fa-pen-to-square"></i> Apply Now</a>
+							<?php if ( !$application_status ) : ?>
+								<a href="<?php echo esc_url( get_the_permalink() ); ?>#Apply" class="button mr-2.5"><i class="fa-solid fa-pen-to-square"></i> Apply Now</a>
+							<?php endif; ?>
 						<?php endif; ?>
 						<a href="<?php echo esc_url( get_the_permalink() ); ?>" class="button button--outline">View full listing</a>
 					</div>

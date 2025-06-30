@@ -69,7 +69,7 @@ class ORU_Zoho_API {
 			return $access_token;
 		}
 		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
-		$candidate_id = '70860000000902006';
+		$candidate_id = '70860000000951106';
 		$endpoint = $api_base_url . 'Candidates/' . $candidate_id;
 		error_log( 'Zoho Candidate API Test Request: ' . $endpoint );
 		$response = wp_remote_get( $endpoint, [

@@ -3,6 +3,34 @@ document.addEventListener("DOMContentLoaded", () => {
 	const resultsContainer = document.getElementById("jobs-results");
 	let isRequestInProgress = false;
 
+	// Create a single IntersectionObserver instance
+	const fadeUpObserver = new IntersectionObserver(
+		(entries) => {
+			entries.forEach((entry) => {
+				if (entry.isIntersecting) {
+					entry.target.classList.add("fade-up--faded");
+					fadeUpObserver.unobserve(entry.target);
+				}
+			});
+		},
+		{
+			threshold: 0.15,
+		}
+	);
+
+	// Function to apply fade-up animation to elements
+	function applyFadeUpAnimations(elements) {
+		const viewportHeight = window.innerHeight;
+		elements.forEach((el) => {
+			const rect = el.getBoundingClientRect();
+			if (rect.top < viewportHeight && rect.bottom > 0) {
+				el.classList.add("fade-up--faded");
+			} else {
+				fadeUpObserver.observe(el);
+			}
+		});
+	}
+
 	// Debounce function
 	function debounce(fn, wait) {
 		let timeout;
@@ -92,6 +120,9 @@ document.addEventListener("DOMContentLoaded", () => {
 					const json = JSON.parse(text);
 					if (json.success && typeof json.data === "string") {
 						resultsContainer.innerHTML = json.data;
+						// Apply fade-up animations to new job listings
+						const newJobListings = resultsContainer.querySelectorAll(".job-listing.fade-up");
+						applyFadeUpAnimations(newJobListings);
 					} else {
 						throw new Error(json.data?.message || "Invalid response data");
 					}
@@ -99,13 +130,25 @@ document.addEventListener("DOMContentLoaded", () => {
 				.catch((error) => {
 					console.error("Fetch Error:", error.message, error.stack);
 					resultsContainer.innerHTML = "<p>Error fetching jobs. Please try again.</p>";
+					// Apply fade-up to error message if needed
+					const errorElement = resultsContainer.querySelector("p");
+					if (errorElement) {
+						errorElement.classList.add("fade-up");
+						applyFadeUpAnimations([errorElement]);
+					}
 				})
 				.finally(() => {
 					isRequestInProgress = false;
 				});
 		} catch (e) {
-			console.error("debouncedUpdateJobs Error:", e.message, error.stack);
+			console.error("debouncedUpdateJobs Error:", e.message, e.stack);
 			resultsContainer.innerHTML = "<p>Error updating jobs. Please try again.</p>";
+			// Apply fade-up to error message if needed
+			const errorElement = resultsContainer.querySelector("p");
+			if (errorElement) {
+				errorElement.classList.add("fade-up");
+				applyFadeUpAnimations([errorElement]);
+			}
 			isRequestInProgress = false;
 		}
 	}, 100);

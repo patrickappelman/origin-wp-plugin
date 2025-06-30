@@ -113,6 +113,55 @@ class ORU_Zoho_API {
 		}
 	}
 
+	public function test_application_api() {
+		$access_token = $this->get_access_token();
+		if ( is_wp_error( $access_token ) ) {
+			return $access_token;
+		}
+		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
+		$endpoint = $api_base_url . 'Applications?per_page=10&sort_by=Applied_Date&sort_order=desc';
+		error_log( 'Zoho Application API Test Request: ' . $endpoint );
+		$response = wp_remote_get( $endpoint, [
+			'headers' => [
+				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+			],
+			'timeout' => 30,
+		]);
+		if ( is_wp_error( $response ) ) {
+			error_log( 'Zoho Application API Test Error: ' . $response->get_error_message() );
+			return $response;
+		}
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		error_log( 'Zoho Application API Test Response: ' . print_r( $body, true ) );
+		if ( $response_code !== 200 ) {
+			$error_message = $body['message'] ?? 'HTTP ' . $response_code;
+			error_log( 'Zoho Application API Test Error: ' . $error_message );
+			return new WP_Error( 'api_error', $error_message );
+		}
+		if ( isset( $body['data'] ) && ! empty( $body['data'] ) ) {
+			error_log( 'Zoho Application API Test Sample Application: ' . print_r( $body['data'][0], true ) );
+			$result = [
+				'count' => count( $body['data'] ),
+				'sample_application' => [],
+			];
+			if ( ! empty( $body['data'][0] ) ) {
+				foreach ( $body['data'][0] as $key => $value ) {
+					if ( is_scalar( $value ) || ( is_array( $value ) && array_walk_recursive( $value, function( $v ) { return is_scalar( $v ); } ) ) ) {
+						$result['sample_application'][$key] = $value;
+					}
+				}
+				$result['sample_application']['id'] = $body['data'][0]['id'] ?? 'Unknown';
+				$result['sample_application']['Candidate'] = $body['data'][0]['Candidate']['name'] ?? 'Unknown';
+				$result['sample_application']['Job_Opening'] = $body['data'][0]['Job_Opening']['name'] ?? 'Unknown';
+			}
+			return $result;
+		} else {
+			error_log( 'Zoho Application API Test Error: No applications found or unexpected response' );
+			return new WP_Error( 'no_data', 'No applications found or unexpected API response.' );
+		}
+	}
+
 	public function search_candidate_by_email( $email ) {
 		$access_token = $this->get_access_token();
 		if ( is_wp_error( $access_token ) ) {
@@ -225,3 +274,4 @@ class ORU_Zoho_API {
 		}
 	}
 }
+?>

@@ -119,6 +119,10 @@ class ORU_Admin_Settings {
 		if ( isset( $_POST['zoho_recruit_test_candidate_api'] ) && check_admin_referer( 'zoho_recruit_test_candidate_api_nonce' ) ) {
 			$test_candidate_result = $this->zoho_api->test_candidate_api();
 		}
+		$test_application_result = '';
+		if ( isset( $_POST['zoho_recruit_test_application_api'] ) && check_admin_referer( 'zoho_recruit_test_application_api_nonce' ) ) {
+			$test_application_result = $this->zoho_api->test_application_api();
+		}
 		$sync_result = '';
 		if ( isset( $_POST['zoho_recruit_sync_jobs'] ) && check_admin_referer( 'zoho_recruit_sync_jobs_nonce' ) ) {
 			$sync_result = $this->zoho_sync->sync_jobs();
@@ -139,11 +143,7 @@ class ORU_Admin_Settings {
 						<p>Retrieved <?php echo esc_html( $test_result['count'] ); ?> job openings.</p>
 						<?php if ( ! empty( $test_result['sample_job'] ) ) : ?>
 							<p><strong>Sample Job Details:</strong></p>
-							<ul>
-								<?php foreach ( $test_result['sample_job'] as $key => $value ) : ?>
-									<li><?php echo esc_html( $key ); ?>: <?php echo esc_html( is_scalar( $value ) ? $value : json_encode( $value ) ); ?></li>
-								<?php endforeach; ?>
-							</ul>
+							<textarea style="width: 100%; height: 200px;"><?php echo esc_textarea( json_encode( $test_result['sample_job'], JSON_PRETTY_PRINT ) ); ?></textarea>
 						<?php else : ?>
 							<p>No job details available.</p>
 						<?php endif; ?>
@@ -161,16 +161,30 @@ class ORU_Admin_Settings {
 						<p>Retrieved candidate with ID 70860000000902006.</p>
 						<?php if ( ! empty( $test_candidate_result['sample_candidate'] ) ) : ?>
 							<p><strong>Candidate Details:</strong></p>
-							<ul>
-								<?php foreach ( $test_candidate_result['sample_candidate'] as $key => $value ) : ?>
-									<li><?php echo esc_html( $key ); ?>: <?php echo esc_html( is_scalar( $value ) ? $value : json_encode( $value ) ); ?></li>
-								<?php endforeach; ?>
-							</ul>
+							<textarea style="width: 100%; height: 200px;"><?php echo esc_textarea( json_encode( $test_candidate_result['sample_candidate'], JSON_PRETTY_PRINT ) ); ?></textarea>
 						<?php else : ?>
 							<p>No candidate details available.</p>
 						<?php endif; ?>
 					<?php else : ?>
 						<p><?php echo esc_html( $test_candidate_result ); ?></p>
+					<?php endif; ?>
+				</div>
+			<?php endif; ?>
+			<?php if ( $test_application_result ) : ?>
+				<div class="notice <?php echo is_wp_error( $test_application_result ) ? 'notice-error' : 'notice-success'; ?>">
+					<p><strong>Test Application API Result:</strong></p>
+					<?php if ( is_wp_error( $test_application_result ) ) : ?>
+						<p><?php echo esc_html( $test_application_result->get_error_message() ); ?></p>
+					<?php elseif ( is_array( $test_application_result ) ) : ?>
+						<p>Retrieved <?php echo esc_html( $test_application_result['count'] ); ?> applications.</p>
+						<?php if ( ! empty( $test_application_result['sample_application'] ) ) : ?>
+							<p><strong>Sample Application Details:</strong></p>
+							<textarea style="width: 100%; height: 200px;"><?php echo esc_textarea( json_encode( $test_application_result['sample_application'], JSON_PRETTY_PRINT ) ); ?></textarea>
+						<?php else : ?>
+							<p>No application details available.</p>
+						<?php endif; ?>
+					<?php else : ?>
+						<p><?php echo esc_html( $test_application_result ); ?></p>
 					<?php endif; ?>
 				</div>
 			<?php endif; ?>
@@ -199,6 +213,11 @@ class ORU_Admin_Settings {
 					<?php wp_nonce_field( 'zoho_recruit_test_candidate_api_nonce' ); ?>
 					<input type="hidden" name="zoho_recruit_test_candidate_api" value="1">
 					<p><button type="submit" class="button button-secondary">Test Candidate API</button></p>
+				</form>
+				<form method="post" action="">
+					<?php wp_nonce_field( 'zoho_recruit_test_application_api_nonce' ); ?>
+					<input type="hidden" name="zoho_recruit_test_application_api" value="1">
+					<p><button type="submit" class="button button-secondary">Test Application API</button></p>
 				</form>
 				<form method="post" action="">
 					<?php wp_nonce_field( 'zoho_recruit_sync_jobs_nonce' ); ?>
@@ -247,3 +266,4 @@ class ORU_Admin_Settings {
 		<?php
 	}
 }
+?>

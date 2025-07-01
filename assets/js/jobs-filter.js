@@ -1,39 +1,7 @@
-/**
- * AJAX handler for job filtering and pagination
- * Path: wp-content/plugins/origin-recruitment-utilities/assets/js/jobs-filter.js
- */
 document.addEventListener("DOMContentLoaded", () => {
 	const form = document.getElementById("jobs-filter-form");
 	const resultsContainer = document.getElementById("jobs-results");
 	let isRequestInProgress = false;
-
-	// Create a single IntersectionObserver instance
-	const fadeUpObserver = new IntersectionObserver(
-		(entries) => {
-			entries.forEach((entry) => {
-				if (entry.isIntersecting) {
-					entry.target.classList.add("fade-up--faded");
-					fadeUpObserver.unobserve(entry.target);
-				}
-			});
-		},
-		{
-			threshold: 0.15,
-		}
-	);
-
-	// Function to apply fade-up animation to elements
-	function applyFadeUpAnimations(elements) {
-		const viewportHeight = window.innerHeight;
-		elements.forEach((el) => {
-			const rect = el.getBoundingClientRect();
-			if (rect.top < viewportHeight && rect.bottom > 0) {
-				el.classList.add("fade-up--faded");
-			} else {
-				fadeUpObserver.observe(el);
-			}
-		});
-	}
 
 	// Debounce function
 	function debounce(fn, wait) {
@@ -44,25 +12,24 @@ document.addEventListener("DOMContentLoaded", () => {
 		};
 	}
 
-	// Get query parameters from form or URL
-	function getQueryParams() {
-		const queryParams = {};
-		// Get URL parameters
-		const urlParams = new URLSearchParams(window.location.search);
-		urlParams.forEach((value, key) => {
-			if (key === "page") return; // Skip page parameter
-			if (queryParams[key]) {
-				if (!Array.isArray(queryParams[key])) {
-					queryParams[key] = [queryParams[key]];
-				}
-				queryParams[key].push(value);
-			} else {
-				queryParams[key] = value;
-			}
-		});
-		// Merge with form data
-		if (form) {
+	// Debounced updateJobs to prevent rapid requests
+	const debouncedUpdateJobs = debounce((page = 1) => {
+		if (isRequestInProgress) {
+			return;
+		}
+
+		if (!window.jobsFilter || !window.jobsFilter.ajaxurl || !window.jobsFilter.nonce) {
+			console.error("jobsFilter config missing:", window.jobsFilter);
+			return;
+		}
+
+		isRequestInProgress = true;
+
+		try {
 			const formData = new FormData(form);
+			const queryParams = {};
+
+			// Map form field names to expected AJAX handler keys
 			for (const [name, value] of formData) {
 				if (!value) continue;
 				let key = name.endsWith("[]") ? name.slice(0, -2) : name;
@@ -75,115 +42,73 @@ document.addEventListener("DOMContentLoaded", () => {
 					queryParams[key] = value;
 				}
 			}
-		}
-		// Handle job_opening_status specially
-		if (queryParams.job_opening_status && queryParams.job_opening_status.includes("in-progress")) {
-			delete queryParams.job_opening_status; // Omit if default
-		}
-		return queryParams;
-	}
 
-	// Debounced updateJobs for filtering and pagination
-	const debouncedUpdateJobs = debounce((page = 1) => {
-		if (isRequestInProgress) {
-			return;
+			// Handle job_opening_status specially
+			if (!queryParams.job_opening_status) {
+				queryParams.job_opening_status = ["all"];
+			} else if (queryParams.job_opening_status.includes("in-progress")) {
+				delete queryParams.job_opening_status; // Omit from URL and query
+			}
+
+			// Manually construct query string to avoid encoding commas
+			const queryStringParts = [];
+			for (const [key, value] of Object.entries(queryParams)) {
+				const encodedKey = encodeURIComponent(key);
+				const encodedValue = Array.isArray(value) ? value.map(encodeURIComponent).join(",") : encodeURIComponent(value);
+				queryStringParts.push(`${encodedKey}=${encodedValue}`);
+			}
+			if (page > 1) {
+				queryStringParts.push(`page=${encodeURIComponent(page)}`);
+			}
+			const queryString = queryStringParts.join("&");
+			const newUrl = `${window.location.pathname}${queryString ? "?" + queryString : ""}`;
+			history.pushState({}, "", newUrl);
+
+			const data = new FormData();
+			data.append("action", "filter_jobs");
+			data.append("nonce", window.jobsFilter.nonce);
+			data.append("page", page);
+			data.append("query", JSON.stringify(queryParams));
+
+			Promise.resolve()
+				.then(() =>
+					fetch(window.jobsFilter.ajaxurl, {
+						method: "POST",
+						body: data,
+					})
+				)
+				.then((response) => {
+					if (!response.ok) {
+						return response.text().then((text) => {
+							throw new Error(`HTTP ${response.status}: ${text}`);
+						});
+					}
+					return response.text();
+				})
+				.then((text) => {
+					if (!text) {
+						throw new Error("Empty response");
+					}
+					const json = JSON.parse(text);
+					if (json.success && typeof json.data === "string") {
+						resultsContainer.innerHTML = json.data;
+					} else {
+						throw new Error(json.data?.message || "Invalid response data");
+					}
+				})
+				.catch((error) => {
+					console.error("Fetch Error:", error.message, error.stack);
+					resultsContainer.innerHTML = "<p>Error fetching jobs. Please try again.</p>";
+				})
+				.finally(() => {
+					isRequestInProgress = false;
+				});
+		} catch (e) {
+			console.error("debouncedUpdateJobs Error:", e.message, error.stack);
+			resultsContainer.innerHTML = "<p>Error updating jobs. Please try again.</p>";
+			isRequestInProgress = false;
 		}
-
-		if (!window.jobsFilter || !window.jobsFilter.ajaxurl || !window.jobsFilter.nonce || !window.jobsFilter.archiveurl) {
-			console.error("jobsFilter config missing:", window.jobsFilter);
-			resultsContainer.innerHTML = "<p>Error: Configuration missing.</p>";
-			applyFadeUpAnimations([resultsContainer.querySelector("p")]);
-			return;
-		}
-
-		isRequestInProgress = true;
-		const queryParams = getQueryParams();
-
-		// Construct query string for URL
-		const queryStringParts = [];
-		for (const [key, value] of Object.entries(queryParams)) {
-			const encodedKey = encodeURIComponent(key);
-			const encodedValue = Array.isArray(value) ? value.map(encodeURIComponent).join(",") : encodeURIComponent(value);
-			queryStringParts.push(`${encodedKey}=${encodedValue}`);
-		}
-		if (page > 1) {
-			queryStringParts.push(`page=${encodeURIComponent(page)}`);
-		}
-		const queryString = queryStringParts.join("&");
-		const newUrl = `${window.jobsFilter.archiveurl}${queryString ? "?" + queryString : ""}`;
-		history.pushState({}, "", newUrl);
-
-		const data = new FormData();
-		data.append("action", "filter_jobs");
-		data.append("nonce", window.jobsFilter.nonce);
-		data.append("page", page);
-		data.append("query", JSON.stringify(queryParams));
-
-		fetch(window.jobsFilter.ajaxurl, {
-			method: "POST",
-			body: data,
-		})
-			.then((response) => {
-				if (!response.ok) {
-					return response.text().then((text) => {
-						throw new Error(`HTTP ${response.status}: ${text}`);
-					});
-				}
-				return response.text();
-			})
-			.then((text) => {
-				if (!text) {
-					throw new Error("Empty response");
-				}
-				const json = JSON.parse(text);
-				if (json.success && typeof json.data === "string") {
-					resultsContainer.innerHTML = json.data;
-					const newJobListings = resultsContainer.querySelectorAll(".job-listing.fade-up");
-					applyFadeUpAnimations(newJobListings);
-				} else {
-					throw new Error(json.data?.message || "Invalid response data");
-				}
-			})
-			.catch((error) => {
-				console.error("Fetch Error:", error.message, error.stack);
-				resultsContainer.innerHTML = "<p>Error fetching jobs. Please try again.</p>";
-				const errorElement = resultsContainer.querySelector("p");
-				if (errorElement) {
-					errorElement.classList.add("fade-up");
-					applyFadeUpAnimations([errorElement]);
-				}
-			})
-			.finally(() => {
-				isRequestInProgress = false;
-			});
 	}, 100);
-
-	// Handle form submission
-	if (form) {
-		form.addEventListener("submit", (e) => {
-			e.preventDefault();
-			debouncedUpdateJobs(1);
-		});
-	}
-
-	// Handle pagination link clicks
-	document.addEventListener("click", (e) => {
-		const link = e.target.closest(".pagination a");
-		if (link) {
-			e.preventDefault();
-			const href = link.getAttribute("href");
-			const pageMatch = href.match(/page=(\d+)/);
-			const page = pageMatch ? parseInt(pageMatch[1]) : 1;
-			debouncedUpdateJobs(page);
-		}
-	});
-
-	// Handle browser back/forward navigation
-	window.addEventListener("popstate", () => {
-		const urlParams = new URLSearchParams(window.location.search);
-		const page = urlParams.get("page") ? parseInt(urlParams.get("page")) : 1;
-		debouncedUpdateJobs(page);
-	});
 
 	// Initialize Preline Advanced Select
 	const selectFields = ["#language-filter", "#location-filter", "#industry-filter", "#sector-filter", "#status-filter"];
@@ -195,10 +120,12 @@ document.addEventListener("DOMContentLoaded", () => {
 			return;
 		}
 
+		// Check Preline readiness
 		function isPrelineReady() {
 			return window.HSSelect && typeof window.HSSelect === "function" && window.HSStaticMethods && typeof window.HSStaticMethods.autoInit === "function";
 		}
 
+		// Delay initialization to ensure Preline is fully loaded
 		function tryInitialize(attempts = 10, delay = 100) {
 			if (attempts <= 0) {
 				console.warn("Preline failed to load after retries. Using native select.");
@@ -235,6 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								}, 500)
 							);
 
+							// Handle tag removal via click on "x"
 							element.parentElement.addEventListener("click", (event) => {
 								const removeButton = event.target.closest("[data-remove]");
 								if (removeButton) {
@@ -282,18 +210,17 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 		}
 
+		// Fallback to native select events
 		function setupNativeSelects() {
-			if (form) {
-				form.addEventListener("change", (event) => {
-					if (event.target.matches("select")) {
-						const values = [...event.target.selectedOptions].map((opt) => opt.value);
-						if (values.length === 0) {
-							console.warn(`No valid value for ${event.target.id}`);
-						}
-						debouncedUpdateJobs(1);
+			form.addEventListener("change", (event) => {
+				if (event.target.matches("select")) {
+					const values = [...event.target.selectedOptions].map((opt) => opt.value);
+					if (values.length === 0) {
+						console.warn(`No valid value for ${event.target.id}`);
 					}
-				});
-			}
+					debouncedUpdateJobs(1);
+				}
+			});
 		}
 
 		tryInitialize();

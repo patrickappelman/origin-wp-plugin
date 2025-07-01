@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for registering job post types.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Post_Types.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

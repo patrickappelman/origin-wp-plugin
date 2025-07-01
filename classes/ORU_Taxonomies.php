@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for registering taxonomies.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Taxonomies.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

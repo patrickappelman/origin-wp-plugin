@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for Zoho job synchronization.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Zoho_Sync.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

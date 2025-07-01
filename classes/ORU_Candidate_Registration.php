@@ -1,7 +1,7 @@
 <?php
 /**
  * Class for handling candidate registration and Zoho syncing.
- * Path: wp-content/plugins/origin-recruitment-utilities/inc/ORU_Candidate_Registration.php
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Candidate_Registration.php
  */
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;

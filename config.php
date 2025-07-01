@@ -1,6 +1,7 @@
 <?php
 /**
  * Configuration file for Origin Recruitment Utilities plugin.
+ * Path: wp-content/plugins/origin-recruitment-utilities/config.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

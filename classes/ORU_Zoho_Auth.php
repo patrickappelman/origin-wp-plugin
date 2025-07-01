@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for Zoho OAuth authentication.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Zoho_Auth.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

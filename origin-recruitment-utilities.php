@@ -5,6 +5,7 @@
  * Version: 1.0.14
  * Author: Appelman Designs
  * Author URI: https://appelmandesigns.com/
+ * Path: wp-content/plugins/origin-recruitment-utilities/origin-recruitment-utilities.php
  */
 
 if (!defined('ABSPATH')) {

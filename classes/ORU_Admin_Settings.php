@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for admin settings and UI.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Admin_Settings.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

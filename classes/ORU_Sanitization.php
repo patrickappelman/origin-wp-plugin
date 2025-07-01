@@ -1,6 +1,7 @@
 <?php
 /**
  * Class for sanitization logic.
+ * Path: wp-content/plugins/origin-recruitment-utilities/classes/ORU_Sanitization.php
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

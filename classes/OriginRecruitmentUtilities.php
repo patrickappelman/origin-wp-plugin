@@ -17,6 +17,7 @@ class OriginRecruitmentUtilities {
 	private $zoho_auth;
 	private $zoho_api;
 	private $zoho_sync;
+	private $zoho_cron;
 	private $admin_settings;
 	private $candidate_registration;
 	private $candidate_application;
@@ -29,18 +30,21 @@ class OriginRecruitmentUtilities {
 		$this->zoho_auth = new ORU_Zoho_Auth();
 		$this->zoho_api = new ORU_Zoho_API( $this->zoho_auth );
 		$this->zoho_sync = new ORU_Zoho_Sync( $this->zoho_api, $this->sanitization );
+		$this->candidate_application = new ORU_Candidate_Application( $this->zoho_api, $this->sanitization );
+		$this->zoho_cron = new ORU_Zoho_Cron( $this->zoho_api, $this->zoho_sync, $this->sanitization, $this->candidate_application );
 		$this->admin_settings = new ORU_Admin_Settings( $this->zoho_auth, $this->zoho_api, $this->zoho_sync );
 		$this->candidate_registration = new ORU_Candidate_Registration( $this->zoho_api, $this->sanitization );
-		$this->candidate_application = new ORU_Candidate_Application( $this->zoho_api, $this->sanitization );
 
-		error_log( 'OriginRecruitmentUtilities: Constructor called, all classes initialized including ORU_Candidate_Application' );
+		error_log( 'OriginRecruitmentUtilities: Constructor called, all classes initialized including ORU_Candidate_Application and ORU_Zoho_Cron, backtrace: ' . wp_debug_backtrace_summary() );
 
 		// Register cron schedules
 		add_filter( 'cron_schedules', [ $this, 'add_cron_schedule' ] );
 
 		// Schedule cron jobs
 		add_action( 'oru_zoho_refresh_token_cron', [ $this->zoho_auth, 'refresh_token' ] );
-		add_action( 'oru_zoho_sync_jobs_cron', [ $this->zoho_sync, 'sync_jobs' ] );
+		add_action( 'oru_zoho_sync_updated_jobs', [ $this->zoho_cron, 'sync_updated_jobs' ] );
+		add_action( 'oru_zoho_sync_updated_applications', [ $this->zoho_cron, 'sync_updated_applications' ] );
+		add_action( 'oru_zoho_sync_updated_candidates', [ $this->zoho_cron, 'sync_updated_candidates' ] );
 
 		// Plugin activation and deactivation hooks
 		register_activation_hook( dirname( __DIR__ ) . '/origin-recruitment-utilities.php', [ $this, 'activate' ] );
@@ -50,11 +54,18 @@ class OriginRecruitmentUtilities {
 	public static function get_instance() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
+			error_log( 'OriginRecruitmentUtilities: Singleton instance created, backtrace: ' . wp_debug_backtrace_summary() );
+		} else {
+			error_log( 'OriginRecruitmentUtilities: Singleton instance already exists, returning existing instance, backtrace: ' . wp_debug_backtrace_summary() );
 		}
 		return self::$instance;
 	}
 
 	public function add_cron_schedule( $schedules ) {
+		$schedules['fifteen_minutes'] = [
+			'interval' => 900, // 15 minutes
+			'display' => __( 'Every Fifteen Minutes', 'textdomain' ),
+		];
 		$schedules['thirty_minutes'] = [
 			'interval' => 1800, // 30 minutes
 			'display' => __( 'Every Thirty Minutes', 'textdomain' ),
@@ -68,16 +79,31 @@ class OriginRecruitmentUtilities {
 			wp_schedule_event( time(), 'thirty_minutes', 'oru_zoho_refresh_token_cron' );
 			error_log( 'OriginRecruitmentUtilities: Scheduled oru_zoho_refresh_token_cron' );
 		}
-		if ( ! wp_next_scheduled( 'oru_zoho_sync_jobs_cron' ) ) {
-			wp_schedule_event( time(), 'hourly', 'oru_zoho_sync_jobs_cron' );
-			error_log( 'OriginRecruitmentUtilities: Scheduled oru_zoho_sync_jobs_cron' );
+		if ( wp_next_scheduled( 'oru_zoho_sync_jobs_cron' ) ) {
+			wp_clear_scheduled_hook( 'oru_zoho_sync_jobs_cron' );
+			error_log( 'OriginRecruitmentUtilities: Cleared oru_zoho_sync_jobs_cron' );
+		}
+		$now = time();
+		if ( ! wp_next_scheduled( 'oru_zoho_sync_updated_jobs' ) ) {
+			wp_schedule_event( $now, 'fifteen_minutes', 'oru_zoho_sync_updated_jobs' );
+			error_log( 'OriginRecruitmentUtilities: Scheduled oru_zoho_sync_updated_jobs at ' . gmdate( 'Y-m-d H:i:s', $now ) );
+		}
+		if ( ! wp_next_scheduled( 'oru_zoho_sync_updated_applications' ) ) {
+			wp_schedule_event( $now + 300, 'fifteen_minutes', 'oru_zoho_sync_updated_applications' ); // 5-minute offset
+			error_log( 'OriginRecruitmentUtilities: Scheduled oru_zoho_sync_updated_applications at ' . gmdate( 'Y-m-d H:i:s', $now + 300 ) );
+		}
+		if ( ! wp_next_scheduled( 'oru_zoho_sync_updated_candidates' ) ) {
+			wp_schedule_event( $now + 600, 'fifteen_minutes', 'oru_zoho_sync_updated_candidates' ); // 10-minute offset
+			error_log( 'OriginRecruitmentUtilities: Scheduled oru_zoho_sync_updated_candidates at ' . gmdate( 'Y-m-d H:i:s', $now + 600 ) );
 		}
 		$this->create_job_applications_table();
 	}
 
 	public function deactivate() {
 		wp_clear_scheduled_hook( 'oru_zoho_refresh_token_cron' );
-		wp_clear_scheduled_hook( 'oru_zoho_sync_jobs_cron' );
+		wp_clear_scheduled_hook( 'oru_zoho_sync_updated_jobs' );
+		wp_clear_scheduled_hook( 'oru_zoho_sync_updated_applications' );
+		wp_clear_scheduled_hook( 'oru_zoho_sync_updated_candidates' );
 		error_log( 'OriginRecruitmentUtilities: Deactivation hook triggered, cleared cron schedules' );
 	}
 

@@ -2,7 +2,7 @@
 /*
  * Plugin Name: Origin Recruitment - Utilities
  * Description: A custom plugin developed for Origin Recruitment by Appelman Designs to augment WordPress to include a Jobs post type, as well as custom tag taxonomy such as Languages, Countries, and Industries.
- * Version: 1.0.14
+ * Version: 1.0.15
  * Author: Appelman Designs
  * Author URI: https://appelmandesigns.com/
  * Path: wp-content/plugins/origin-recruitment-utilities/origin-recruitment-utilities.php
@@ -15,6 +15,11 @@ if (!defined('ABSPATH')) {
 // Load configuration
 require_once plugin_dir_path(__FILE__) . 'config.php';
 
+// Debug multiple instantiations
+add_action( 'plugins_loaded', function() {
+	error_log( 'ORU: plugins_loaded triggered, backtrace: ' . wp_debug_backtrace_summary() );
+});
+
 // Load classes
 require_once plugin_dir_path( __FILE__ ) . 'classes/OriginRecruitmentUtilities.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Post_Types.php';
@@ -23,6 +28,7 @@ require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Sanitization.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_Auth.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_API.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_Sync.php';
+require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_Cron.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Admin_Settings.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Registration.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Application.php';

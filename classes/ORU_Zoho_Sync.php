@@ -17,7 +17,7 @@ class ORU_Zoho_Sync {
 		$this->sanitization = $sanitization;
 	}
 
-	public function sync_jobs() {
+	public function sync_jobs( $job_data = null ) {
 		if ( ! function_exists( 'acf_update_field' ) ) {
 			error_log( 'Zoho Sync Error: ACF plugin not active' );
 			add_action( 'admin_notices', function() {
@@ -25,6 +25,7 @@ class ORU_Zoho_Sync {
 			});
 			return new WP_Error( 'acf_missing', 'Advanced Custom Fields plugin is required.' );
 		}
+
 		$access_token = $this->zoho_api->get_access_token();
 		if ( is_wp_error( $access_token ) ) {
 			add_action( 'admin_notices', function() use ( $access_token ) {
@@ -32,32 +33,38 @@ class ORU_Zoho_Sync {
 			});
 			return $access_token;
 		}
-		$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
-		$endpoint = $api_base_url . 'Job_Openings';
-		error_log( 'Zoho Sync Request: ' . $endpoint );
-		$response = wp_remote_get( $endpoint, [
-			'headers' => [
-				'Authorization' => 'Zoho-oauthtoken ' . $access_token,
-			],
-			'timeout' => 30,
-		]);
-		if ( is_wp_error( $response ) ) {
-			error_log( 'Zoho Sync Error: ' . $response->get_error_message() );
-			add_action( 'admin_notices', function() use ( $response ) {
-				echo '<div class="notice notice-error"><p>Zoho Sync Error: ' . esc_html( $response->get_error_message() ) . '</p></div>';
-			});
-			return $response;
+
+		// Fetch jobs from Zoho API if no job_data provided
+		if ( is_null( $job_data ) ) {
+			$api_base_url = 'https://recruit.zoho.eu/recruit/v2/';
+			$endpoint = $api_base_url . 'Job_Openings';
+			error_log( 'Zoho Sync Request: ' . $endpoint );
+			$response = wp_remote_get( $endpoint, [
+				'headers' => [
+					'Authorization' => 'Zoho-oauthtoken ' . $access_token,
+				],
+				'timeout' => 30,
+			]);
+			if ( is_wp_error( $response ) ) {
+				error_log( 'Zoho Sync Error: ' . $response->get_error_message() );
+				add_action( 'admin_notices', function() use ( $response ) {
+					echo '<div class="notice notice-error"><p>Zoho Sync Error: ' . esc_html( $response->get_error_message() ) . '</p></div>';
+				});
+				return $response;
+			}
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+			error_log( 'Zoho Sync Response: ' . print_r( $body, true ) );
+			error_log( 'Zoho Sync Response Keys: ' . print_r( array_keys( $body['data'][0] ?? [] ), true ) );
+			if ( ! isset( $body['data'] ) || empty( $body['data'] ) ) {
+				error_log( 'Zoho Sync Error: No job openings found' );
+				add_action( 'admin_notices', function() {
+					echo '<div class="notice notice-error"><p>Zoho Sync Error: No job openings found in Zoho Recruit.</p></div>';
+				});
+				return new WP_Error( 'no_data', 'No job openings found in Zoho Recruit.' );
+			}
+			$job_data = $body;
 		}
-		$body = json_decode( wp_remote_retrieve_body( $response ), true );
-		error_log( 'Zoho Sync Response: ' . print_r( $body, true ) );
-		error_log( 'Zoho Sync Response Keys: ' . print_r( array_keys( $body['data'][0] ?? [] ), true ) );
-		if ( ! isset( $body['data'] ) || empty( $body['data'] ) ) {
-			error_log( 'Zoho Sync Error: No job openings found' );
-			add_action( 'admin_notices', function() {
-				echo '<div class="notice notice-error"><p>Zoho Sync Error: No job openings found in Zoho Recruit.</p></div>';
-			});
-			return new WP_Error( 'no_data', 'No job openings found in Zoho Recruit.' );
-		}
+
 		$synced_jobs = 0;
 		$zoho_job_opening_ids = [];
 		$log_post_content = function( $data, $postarr ) {
@@ -78,7 +85,8 @@ class ORU_Zoho_Sync {
 			return $data;
 		};
 		add_filter( 'wp_insert_post_data', $log_post_content, 9, 2 );
-		foreach ( $body['data'] as $job ) {
+
+		foreach ( $job_data['data'] as $job ) {
 			$zoho_job_opening_id = $job['Job_Opening_ID'] ?? '';
 			$zoho_id = $job['id'] ?? '';
 			error_log( 'Zoho Sync Job Data: ' . print_r( $job, true ) );
@@ -185,8 +193,14 @@ class ORU_Zoho_Sync {
 						error_log( 'Zoho Sync Error: Failed to parse Created_Time for Job ID ' . $zoho_job_opening_id . ': ' . $e->getMessage() );
 					}
 				}
+				$post_title = $this->sanitization->sanitize_text( $job['Job_Opening_Name'] ?? 'Untitled Job' );
+				// Generate slug: sanitize title + Zoho id
+				$base_slug = sanitize_title( $post_title );
+				$post_slug = $base_slug . '-' . $zoho_id;
+				error_log( 'Zoho Sync Job ID ' . $zoho_job_opening_id . ': Generated slug: ' . $post_slug );
 				$post_args = [
-					'post_title' => $this->sanitization->sanitize_text( $job['Job_Opening_Name'] ?? 'Untitled Job' ),
+					'post_title' => $post_title,
+					'post_name' => $post_slug,
 					'post_content' => wp_slash( $sanitized_description ),
 					'post_excerpt' => sanitize_text_field( $excerpt ),
 					'post_type' => 'job',
@@ -217,10 +231,10 @@ class ORU_Zoho_Sync {
 				if ( $is_update ) {
 					$post_args['ID'] = $existing_posts[0]->ID;
 					$post_id = wp_update_post( $post_args, true );
-					error_log( 'Zoho Sync Updated Post ID: ' . $post_args['ID'] . ' for Zoho Job ID: ' . $zoho_job_opening_id );
+					error_log( 'Zoho Sync Updated Post ID: ' . $post_args['ID'] . ' for Zoho Job ID: ' . $zoho_job_opening_id . ' with slug: ' . $post_slug );
 				} else {
 					$post_id = wp_insert_post( $post_args, true );
-					error_log( 'Zoho Sync Created Post ID: ' . $post_id . ' for Zoho Job ID: ' . $zoho_job_opening_id );
+					error_log( 'Zoho Sync Created Post ID: ' . $post_id . ' for Zoho Job ID: ' . $zoho_job_opening_id . ' with slug: ' . $post_slug );
 				}
 				if ( $filters['wp_filter_post_kses'] !== false ) {
 					add_filter( 'wp_insert_post_data', 'wp_filter_post_kses', $filters['wp_filter_post_kses'] );
@@ -241,12 +255,12 @@ class ORU_Zoho_Sync {
 				update_post_meta( $post_id, '_zoho_raw_description', $job_description );
 				update_post_meta( $post_id, '_zoho_sanitized_description', $sanitized_description );
 				$stored_post = get_post( $post_id );
-				error_log( 'Zoho Sync Job ID ' . $zoho_job_opening_id . ': Stored Post Content: ' . substr( $stored_post->post_content, 0, 1000 ) );
+				error_log( 'Zoho Sync Job ID ' . $zoho_job_opening_id . ': Stored Post Content: ' . substr( $stored_post->post_content, 0, 1000 ) . ', Stored Slug: ' . $stored_post->post_name );
 				add_action( 'admin_notices', function() use ( $zoho_job_opening_id, $zoho_id, $stored_post ) {
-					echo '<div class="notice notice-info"><p>Zoho Job ID ' . esc_html( $zoho_job_opening_id ) . ' (Zoho id ' . esc_html( $zoho_id ) . ') Stored Post Content: ' . esc_html( substr( $stored_post->post_content, 0, 500 ) ) . '</p></div>';
+					echo '<div class="notice notice-info"><p>Zoho Job ID ' . esc_html( $zoho_job_opening_id ) . ' (Zoho id ' . esc_html( $zoho_id ) . ') Stored Post Content: ' . esc_html( substr( $stored_post->post_content, 0, 500 ) ) . ', Stored Slug: ' . esc_html( $stored_post->post_name ) . '</p></div>';
 				});
 				$acf_mappings = [
-					'ID' => [ 'field' => 'id', 'type' => 'text' ],
+					'id' => [ 'field' => 'id', 'type' => 'text' ],
 					'job_opening_id' => [ 'field' => 'Job_Opening_ID', 'type' => 'text' ],
 					'job_opening_status' => [ 'field' => 'Job_Opening_Status', 'type' => 'text' ],
 					'state' => [ 'field' => 'State', 'type' => 'text' ],
@@ -349,23 +363,28 @@ class ORU_Zoho_Sync {
 			}
 		}
 		remove_filter( 'wp_insert_post_data', $log_post_content, 9 );
-		$args = [
-			'post_type' => 'job',
-			'posts_per_page' => -1,
-			'post_status' => 'any',
-			'meta_query' => [
-				[
-					'key' => 'job_opening_id',
-					'value' => $zoho_job_opening_ids,
-					'compare' => 'NOT IN',
+
+		// Only delete posts if fetching all jobs (not for cron incremental updates)
+		if ( is_null( $job_data ) ) {
+			$args = [
+				'post_type' => 'job',
+				'posts_per_page' => -1,
+				'post_status' => 'any',
+				'meta_query' => [
+					[
+						'key' => 'job_opening_id',
+						'value' => $zoho_job_opening_ids,
+						'compare' => 'NOT IN',
+					],
 				],
-			],
-		];
-		$posts_to_delete = get_posts( $args );
-		foreach ( $posts_to_delete as $post ) {
-			wp_delete_post( $post->ID, true );
-			error_log( 'Zoho Sync Deleted Post ID ' . $post->ID . ' (non-existent Zoho Job)' );
+			];
+			$posts_to_delete = get_posts( $args );
+			foreach ( $posts_to_delete as $post ) {
+				wp_delete_post( $post->ID, true );
+				error_log( 'Zoho Sync Deleted Post ID ' . $post->ID . ' (non-existent Zoho Job)' );
+			}
 		}
+
 		$message = sprintf( 'Successfully synchronized %d job openings.', $synced_jobs );
 		error_log( $message );
 		add_action( 'admin_notices', function() use ( $message ) {
@@ -374,3 +393,4 @@ class ORU_Zoho_Sync {
 		return $message;
 	}
 }
+?>

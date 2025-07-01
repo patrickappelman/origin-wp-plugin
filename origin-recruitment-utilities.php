@@ -2,7 +2,7 @@
 /*
  * Plugin Name: Origin Recruitment - Utilities
  * Description: A custom plugin developed for Origin Recruitment by Appelman Designs to augment WordPress to include a Jobs post type, as well as custom tag taxonomy such as Languages, Countries, and Industries.
- * Version: 1.0.15
+ * Version: 1.0.16
  * Author: Appelman Designs
  * Author URI: https://appelmandesigns.com/
  * Path: wp-content/plugins/origin-recruitment-utilities/origin-recruitment-utilities.php
@@ -50,6 +50,7 @@ function jobs_filter_enqueue_assets() {
 		wp_localize_script( 'jobs-filter', 'jobsFilter', [
 			'ajaxurl' => admin_url( 'admin-ajax.php' ),
 			'nonce' => wp_create_nonce( 'jobs_filter_nonce' ),
+			'archiveurl' => get_post_type_archive_link( 'job' ),
 		] );
 	}
 }
@@ -140,7 +141,7 @@ function jobs_filter_callback() {
 			'value' => $status_query,
 			'compare' => 'IN',
 		];
-	} // Else, skip meta_query for 'all' to show all statuses
+	}
 
 	$taxonomies = [ 'language', 'country', 'industry', 'sector' ];
 	foreach ( $taxonomies as $taxonomy ) {
@@ -268,18 +269,22 @@ function jobs_filter_callback() {
 				</article>
 			<?php endwhile;
 
+			$archive_url = get_post_type_archive_link( 'job' );
 			echo '<nav class="pagination" aria-label="Pagination">';
 			echo paginate_links( [
+				'base' => str_replace( 999999999, '%#%', esc_url( $archive_url . '%_%' ) ),
+				'format' => '?page=%#%',
 				'total' => $query->max_num_pages,
 				'current' => $paged,
-				'format' => '?page=%#%',
 				'show_all' => false,
 				'prev_next' => true,
 				'add_args' => array_filter( $query_params, fn( $value ) => $value !== '' && $value !== false && $value !== null ),
 				'next_text' => '>',
 				'prev_text' => '<',
+				'add_fragment' => '#jobs-results',
 			] );
 			echo '</nav>';
+			// jobs-results
 		else :
 			echo '<p>No jobs found matching your criteria.</p>';
 		endif;

@@ -1,6 +1,11 @@
+/**
+ * AJAX handler for job filtering and pagination
+ * Path: wp-content/plugins/origin-recruitment-utilities/assets/js/jobs-filter.js
+ */
 document.addEventListener("DOMContentLoaded", () => {
 	const form = document.getElementById("jobs-filter-form");
 	const resultsContainer = document.getElementById("jobs-results");
+	const jobsColumn = document.getElementById("jobs-column");
 	let isRequestInProgress = false;
 
 	// Debounce function
@@ -12,45 +17,69 @@ document.addEventListener("DOMContentLoaded", () => {
 		};
 	}
 
-	// Debounced updateJobs to prevent rapid requests
-	const debouncedUpdateJobs = debounce((page = 1) => {
-		if (isRequestInProgress) {
-			return;
-		}
+	// Get query parameters from form and URL
+	function getQueryParams(isInitialLoad = false) {
+		const queryParams = {};
 
-		if (!window.jobsFilter || !window.jobsFilter.ajaxurl || !window.jobsFilter.nonce) {
-			console.error("jobsFilter config missing:", window.jobsFilter);
-			return;
-		}
-
-		isRequestInProgress = true;
-
-		try {
+		// Merge with form data
+		if (form) {
 			const formData = new FormData(form);
-			const queryParams = {};
-
-			// Map form field names to expected AJAX handler keys
+			const formValues = {};
 			for (const [name, value] of formData) {
 				if (!value) continue;
 				let key = name.endsWith("[]") ? name.slice(0, -2) : name;
 				if (key === "location-filter") key = "country";
 				if (key === "status-filter") key = "job_opening_status";
 				if (name.endsWith("[]")) {
-					if (!queryParams[key]) queryParams[key] = [];
-					queryParams[key].push(value);
+					if (!formValues[key]) formValues[key] = [];
+					formValues[key].push(value);
 				} else {
-					queryParams[key] = value;
+					formValues[key] = value;
 				}
 			}
-
-			// Handle job_opening_status specially
-			if (!queryParams.job_opening_status) {
-				queryParams.job_opening_status = ["all"];
-			} else if (queryParams.job_opening_status.includes("in-progress")) {
-				delete queryParams.job_opening_status; // Omit from URL and query
+			// Merge form values
+			for (const [key, value] of Object.entries(formValues)) {
+				queryParams[key] = key === "search" ? value : [...new Set(value)];
 			}
+		}
+		// On initial load, check URL parameters for job_opening_status
+		if (isInitialLoad) {
+			const urlParams = new URLSearchParams(window.location.search);
+			const status = urlParams.get("job_opening_status");
+			if (status) {
+				queryParams.job_opening_status = status.split(",").filter((v) => v);
+			}
+			console.log(status);
+		}
+		// Set job_opening_status to ["all"] if empty (only for non-initial load)
+		if (!isInitialLoad && (!queryParams.job_opening_status || queryParams.job_opening_status.length === 0)) {
+			queryParams.job_opening_status = ["all"];
+		} else if (queryParams.job_opening_status && queryParams.job_opening_status.length === 1 && queryParams.job_opening_status[0] === "in-progress") {
+			delete queryParams.job_opening_status;
+		}
+		console.debug("Query params:", queryParams);
+		return queryParams;
+	}
 
-			// Manually construct query string to avoid encoding commas
+	// Debounced updateJobs to prevent rapid requests
+	const debouncedUpdateJobs = debounce((page = 1, isUserInteraction = false) => {
+		if (isRequestInProgress) {
+			console.debug("Request in progress, skipping update");
+			return;
+		}
+
+		if (!window.jobsFilter || !window.jobsFilter.ajaxurl || !window.jobsFilter.nonce || !window.jobsFilter.archiveurl) {
+			console.error("jobsFilter config missing:", window.jobsFilter);
+			resultsContainer.innerHTML = "<p>Error: Configuration missing.</p>";
+			return;
+		}
+
+		isRequestInProgress = true;
+
+		try {
+			const queryParams = getQueryParams(!isUserInteraction);
+
+			// Construct query string for URL
 			const queryStringParts = [];
 			for (const [key, value] of Object.entries(queryParams)) {
 				const encodedKey = encodeURIComponent(key);
@@ -61,8 +90,8 @@ document.addEventListener("DOMContentLoaded", () => {
 				queryStringParts.push(`page=${encodeURIComponent(page)}`);
 			}
 			const queryString = queryStringParts.join("&");
-			const newUrl = `${window.location.pathname}${queryString ? "?" + queryString : ""}`;
-			history.pushState({}, "", newUrl);
+			const newUrl = `${window.jobsFilter.archiveurl}${queryString ? "?" + queryString : ""}`;
+			history.pushState({ page, queryParams }, "", newUrl);
 
 			const data = new FormData();
 			data.append("action", "filter_jobs");
@@ -70,13 +99,12 @@ document.addEventListener("DOMContentLoaded", () => {
 			data.append("page", page);
 			data.append("query", JSON.stringify(queryParams));
 
-			Promise.resolve()
-				.then(() =>
-					fetch(window.jobsFilter.ajaxurl, {
-						method: "POST",
-						body: data,
-					})
-				)
+			console.debug("Sending AJAX request:", { page, queryParams });
+
+			fetch(window.jobsFilter.ajaxurl, {
+				method: "POST",
+				body: data,
+			})
 				.then((response) => {
 					if (!response.ok) {
 						return response.text().then((text) => {
@@ -92,6 +120,10 @@ document.addEventListener("DOMContentLoaded", () => {
 					const json = JSON.parse(text);
 					if (json.success && typeof json.data === "string") {
 						resultsContainer.innerHTML = json.data;
+						// Scroll to top of #jobs-column for user interactions
+						if (isUserInteraction && jobsColumn) {
+							jobsColumn.scrollIntoView({ behavior: "smooth", block: "start" });
+						}
 					} else {
 						throw new Error(json.data?.message || "Invalid response data");
 					}
@@ -104,11 +136,51 @@ document.addEventListener("DOMContentLoaded", () => {
 					isRequestInProgress = false;
 				});
 		} catch (e) {
-			console.error("debouncedUpdateJobs Error:", e.message, error.stack);
+			console.error("debouncedUpdateJobs Error:", e.message, e.stack);
 			resultsContainer.innerHTML = "<p>Error updating jobs. Please try again.</p>";
 			isRequestInProgress = false;
 		}
 	}, 100);
+
+	// Handle form submission
+	if (form) {
+		form.addEventListener("submit", (e) => {
+			e.preventDefault();
+			console.debug("Form submitted");
+			debouncedUpdateJobs(1, true);
+		});
+		// Handle input changes for search
+		const searchInput = document.getElementById("search-filter");
+		if (searchInput) {
+			searchInput.addEventListener(
+				"input",
+				debounce(() => {
+					console.debug("Search input changed:", searchInput.value);
+					debouncedUpdateJobs(1, true);
+				}, 500)
+			);
+		}
+	}
+
+	// Handle pagination link clicks
+	document.addEventListener("click", (e) => {
+		const link = e.target.closest(".pagination a");
+		if (link) {
+			e.preventDefault();
+			const href = link.getAttribute("href");
+			const pageMatch = href.match(/page=(\d+)/);
+			const page = pageMatch ? parseInt(pageMatch[1]) : 1;
+			console.debug("Pagination clicked, page:", page);
+			debouncedUpdateJobs(page, true);
+		}
+	});
+
+	// Handle browser back/forward navigation
+	window.addEventListener("popstate", (event) => {
+		const page = event.state?.page || (new URLSearchParams(window.location.search).get("page") ? parseInt(new URLSearchParams(window.location.search).get("page")) : 1);
+		console.debug("Popstate event, page:", page);
+		debouncedUpdateJobs(page, false);
+	});
 
 	// Initialize Preline Advanced Select
 	const selectFields = ["#language-filter", "#location-filter", "#industry-filter", "#sector-filter", "#status-filter"];
@@ -120,12 +192,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			return;
 		}
 
-		// Check Preline readiness
 		function isPrelineReady() {
 			return window.HSSelect && typeof window.HSSelect === "function" && window.HSStaticMethods && typeof window.HSStaticMethods.autoInit === "function";
 		}
 
-		// Delay initialization to ensure Preline is fully loaded
 		function tryInitialize(attempts = 10, delay = 100) {
 			if (attempts <= 0) {
 				console.warn("Preline failed to load after retries. Using native select.");
@@ -148,50 +218,46 @@ document.addEventListener("DOMContentLoaded", () => {
 							hsSelect.on(
 								"change",
 								debounce(() => {
-									let value;
-									try {
-										value = hsSelect.getSelected ? hsSelect.getSelected() : [...element.selectedOptions].map((opt) => opt.value);
-									} catch (e) {
-										console.warn(`Failed to get value for ${selector}:`, e.message);
-										value = [...element.selectedOptions].map((opt) => opt.value);
-									}
-									if (!value || (Array.isArray(value) && value.length === 0)) {
-										console.warn(`No valid value for ${selector}`);
-									}
-									debouncedUpdateJobs(1);
+									const values = [...element.selectedOptions].map((opt) => opt.value);
+									console.debug(`Select changed for ${selector}:`, values);
+									debouncedUpdateJobs(1, true);
 								}, 500)
 							);
 
-							// Handle tag removal via click on "x"
+							// Handle tag removal
 							element.parentElement.addEventListener("click", (event) => {
 								const removeButton = event.target.closest("[data-remove]");
 								if (removeButton) {
-									const tagElement = removeButton.closest(".hs-select-tag");
-									let tagText = "";
-									if (tagElement) {
-										for (const node of tagElement.childNodes) {
-											if (node.nodeType === Node.TEXT_NODE) {
-												tagText += node.textContent.trim();
-											}
-										}
+									event.preventDefault();
+									console.debug(`Remove button clicked for ${selector}:`, removeButton);
+									console.debug(`Parent elements:`, removeButton.closest(".hs-select"), removeButton.parentElement);
+
+									const tagItem = removeButton.closest(".advanced-select__tag-item");
+									if (!tagItem) {
+										console.warn(`No tag item found for ${selector}`);
+										return;
 									}
-									let valueToRemove = "";
+
+									let tagText = "";
+									const titleElement = tagItem.querySelector(".advanced-select__tag-item-title");
+									tagText = titleElement ? titleElement.textContent.trim() : tagItem.textContent.trim();
+									console.debug(`Removing tag for ${selector}:`, tagText);
+
 									if (tagText) {
 										const options = Array.from(element.options);
 										const matchingOption = options.find((opt) => opt.textContent.trim().toLowerCase() === tagText.toLowerCase() || opt.value.toLowerCase() === tagText.toLowerCase());
-										valueToRemove = matchingOption ? matchingOption.value : tagText.toLowerCase();
-									}
-
-									setTimeout(() => {
-										if (valueToRemove) {
-											Array.from(element.options).forEach((option) => {
-												if (option.value.toLowerCase() === valueToRemove.toLowerCase()) {
-													option.selected = false;
-												}
-											});
+										if (matchingOption) {
+											console.debug(`Found matching option for ${selector}:`, matchingOption.value);
+											matchingOption.selected = false;
+											const selectedValues = [...element.selectedOptions].map((opt) => opt.value);
+											console.debug(`Selected values after removal for ${selector}:`, selectedValues);
+											debouncedUpdateJobs(1, true);
+										} else {
+											console.warn(`No matching option found for ${selector}:`, tagText);
 										}
-										debouncedUpdateJobs(1);
-									}, 300);
+									} else {
+										console.warn(`No valid tag text for ${selector}`);
+									}
 								}
 							});
 						} catch (e) {
@@ -199,8 +265,11 @@ document.addEventListener("DOMContentLoaded", () => {
 						}
 					});
 
-					// Trigger initial update on page load
-					debouncedUpdateJobs(1);
+					// Trigger initial update on page load (no scroll)
+					const urlParams = new URLSearchParams(window.location.search);
+					const page = urlParams.get("page") ? parseInt(urlParams.get("page")) : 1;
+					console.debug("Initial page load, page:", page);
+					debouncedUpdateJobs(page, false);
 				} catch (e) {
 					console.error("Preline autoInit failed:", e.message, e.stack);
 					setupNativeSelects();
@@ -210,17 +279,21 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 		}
 
-		// Fallback to native select events
 		function setupNativeSelects() {
-			form.addEventListener("change", (event) => {
-				if (event.target.matches("select")) {
-					const values = [...event.target.selectedOptions].map((opt) => opt.value);
-					if (values.length === 0) {
-						console.warn(`No valid value for ${event.target.id}`);
+			if (form) {
+				form.addEventListener("change", (event) => {
+					if (event.target.matches("select")) {
+						const values = [...event.target.selectedOptions].map((opt) => opt.value);
+						console.debug(`Native select changed:`, values);
+						debouncedUpdateJobs(1, true);
 					}
-					debouncedUpdateJobs(1);
-				}
-			});
+				});
+			}
+			// Trigger initial update for native selects (no scroll)
+			const urlParams = new URLSearchParams(window.location.search);
+			const page = urlParams.get("page") ? parseInt(urlParams.get("page")) : 1;
+			console.debug("Initial native select load, page:", page);
+			debouncedUpdateJobs(page, false);
 		}
 
 		tryInitialize();

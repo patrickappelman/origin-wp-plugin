@@ -2,7 +2,7 @@
 /*
  * Plugin Name: Origin Recruitment - Utilities
  * Description: A custom plugin developed for Origin Recruitment by Appelman Designs to augment WordPress to include a Jobs post type, as well as custom tag taxonomy such as Languages, Countries, and Industries.
- * Version: 1.0.16
+ * Version: 1.0.18
  * Author: Appelman Designs
  * Author URI: https://appelmandesigns.com/
  * Path: wp-content/plugins/origin-recruitment-utilities/origin-recruitment-utilities.php
@@ -95,19 +95,26 @@ function jobs_filter_callback() {
 		wp_die();
 	}
 
-	// Validate query
-	if ( ! isset( $_POST['query'] ) ) {
-		wp_send_json_error( [ 'message' => 'Missing query parameter' ], 400 );
-		wp_die();
+	// Use GET parameters if no POST query (for direct loads)
+	$query_params = [];
+	if ( isset( $_POST['query'] ) ) {
+		$query_params = json_decode( stripslashes( $_POST['query'] ), true );
+		if ( $query_params === null ) {
+			wp_send_json_error( [ 'message' => 'Invalid query JSON' ], 400 );
+			wp_die();
+		}
+	} else {
+		$query_params = [
+			'search' => isset( $_GET['search'] ) ? sanitize_text_field( $_GET['search'] ) : '',
+			'language' => isset( $_GET['language'] ) ? explode( ',', sanitize_text_field( $_GET['language'] ) ) : [],
+			'country' => isset( $_GET['country'] ) ? explode( ',', sanitize_text_field( $_GET['country'] ) ) : [],
+			'industry' => isset( $_GET['industry'] ) ? explode( ',', sanitize_text_field( $_GET['industry'] ) ) : [],
+			'sector' => isset( $_GET['sector'] ) ? explode( ',', sanitize_text_field( $_GET['sector'] ) ) : [],
+			'job_opening_status' => isset( $_GET['job_opening_status'] ) ? explode( ',', sanitize_text_field( $_GET['job_opening_status'] ) ) : [],
+		];
 	}
 
-	$query_params = json_decode( stripslashes( $_POST['query'] ), true );
-	if ( $query_params === null ) {
-		wp_send_json_error( [ 'message' => 'Invalid query JSON' ], 400 );
-		wp_die();
-	}
-
-	$paged = isset( $_POST['page'] ) ? max( 1, intval( $_POST['page'] ) ) : 1;
+	$paged = isset( $_POST['page'] ) ? max( 1, intval( $_POST['page'] ) ) : ( isset( $_GET['page'] ) ? max( 1, intval( $_GET['page'] ) ) : 1 );
 
 	// Validate post type and meta field
 	if ( ! post_type_exists( 'job' ) ) {
@@ -134,7 +141,7 @@ function jobs_filter_callback() {
 	];
 
 	// Handle job_opening_status
-	$status_query = isset( $query_params['job_opening_status'] ) ? array_map( 'sanitize_text_field', (array) $query_params['job_opening_status'] ) : [ 'in-progress' ];
+	$status_query = isset( $query_params['job_opening_status'] ) && !empty( $query_params['job_opening_status'] ) ? array_map( 'sanitize_text_field', array_unique( (array) $query_params['job_opening_status'] ) ) : [ 'in-progress' ];
 	if ( ! in_array( 'all', $status_query ) ) {
 		$args['meta_query'][] = [
 			'key' => 'job_opening_status',
@@ -149,7 +156,7 @@ function jobs_filter_callback() {
 			$args['tax_query'][] = [
 				'taxonomy' => $taxonomy,
 				'field' => 'slug',
-				'terms' => array_map( 'sanitize_text_field', (array) $query_params[$taxonomy] ),
+				'terms' => array_map( 'sanitize_text_field', array_unique( (array) $query_params[$taxonomy] ) ),
 			];
 		} elseif ( ! empty( $query_params[$taxonomy] ) ) {
 			error_log( "Jobs Filter AJAX: Taxonomy '$taxonomy' not registered" );
@@ -251,16 +258,16 @@ function jobs_filter_callback() {
 						</li>
 						<li>
 							<i class="fa-solid fa-fw fa-briefcase" alt="Employment Type"></i>
-							<?php echo esc_html( get_field( 'job_type' ) ); ?>
+							<?php echo esc_html( get_field( 'job_type' ) ) ?: ''; ?>
 						</li>
 						<li class="col-span-2">
 							<i class="fa-solid fa-fw fa-money-bills" alt="Salary"></i>
-							<?php echo esc_html( get_field( 'salary' ) ); ?>
+							<?php echo esc_html( get_field( 'salary' ) ) ?: ''; ?>
 						</li>
 					</ul>
 					<div>
 						<?php if ( $arr_job_status[$job_status]['can-apply'] ) : ?>
-							<?php if ( !$application_status ) : ?>
+							<?php if ( ! $application_status ) : ?>
 								<a href="<?php echo esc_url( get_the_permalink() ); ?>#Apply" class="button mr-2.5"><i class="fa-solid fa-pen-to-square"></i> Apply Now</a>
 							<?php endif; ?>
 						<?php endif; ?>
@@ -278,13 +285,11 @@ function jobs_filter_callback() {
 				'current' => $paged,
 				'show_all' => false,
 				'prev_next' => true,
-				'add_args' => array_filter( $query_params, fn( $value ) => $value !== '' && $value !== false && $value !== null ),
+				'add_args' => array_filter( $query_params, fn( $value ) => $value !== '' && $value !== false && $value !== null && $value !== 'in-progress' ),
 				'next_text' => '>',
 				'prev_text' => '<',
-				'add_fragment' => '#jobs-results',
 			] );
 			echo '</nav>';
-			// jobs-results
 		else :
 			echo '<p>No jobs found matching your criteria.</p>';
 		endif;

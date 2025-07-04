@@ -32,6 +32,7 @@ require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Zoho_Cron.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Admin_Settings.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Registration.php';
 require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_Candidate_Application.php';
+require_once plugin_dir_path( __FILE__ ) . 'classes/ORU_CF7_Fields.php';
 
 // Initialize the plugin
 OriginRecruitmentUtilities::get_instance();

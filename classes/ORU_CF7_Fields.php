@@ -55,13 +55,15 @@ class ORU_CF7_Fields {
 	public function form_tag_handler($tag) {
 		$tag = new WPCF7_FormTag($tag);
 		$name = $tag->name;
-		$taxonomy = $this->get_taxonomy_from_tag($tag->type);
+		$taxonomy_info = $this->get_taxonomy_from_tag($tag->type);
+		$taxonomy = $taxonomy_info['singular'];
+		$taxonomy_plural = $taxonomy_info['plural'];
 		$is_multi = strpos($tag->type, '_multi') !== false;
 		$is_required = $tag->is_required();
 
 		// Get attributes
 		$id = $tag->get_id_option();
-		$classes = $tag->get_class_option();
+		$classes = $tag->get_class_option('wpcf7-select form__field form__field--' . esc_attr($name));
 		$placeholder = '';
 		foreach ($tag->raw_values as $raw_value) {
 			if (preg_match('/^placeholder:"(.+)"$/', $raw_value, $matches)) {
@@ -82,6 +84,35 @@ class ORU_CF7_Fields {
 			return '<p>Error loading ' . esc_html($taxonomy) . ' options.</p>';
 		}
 
+		// Preline UI configuration
+		$hs_select_config = $is_multi ? [
+			'placeholder' => $placeholder ? esc_attr($placeholder) : 'Select ' . esc_attr(ucfirst($taxonomy_plural)),
+			'dropdownClasses' => 'advanced-select__dropdown',
+			'optionClasses' => 'advanced-select__option',
+			'mode' => 'tags',
+			'hasSearch' => true,
+			'searchClasses' => 'advanced-select__search',
+			'searchWrapperClasses' => 'advanced-select__search-wrapper',
+			'wrapperClasses' => 'advanced-select__wrapper',
+			'tagsItemTemplate' => '<div class="advanced-select__tag-item"><div class="advanced-select__tag-item-icon" data-icon></div><div class="advanced-select__tag-item-title" data-title></div><div class="advanced-select__tag-item-remove" data-remove><svg class="shrink-0 size-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></div></div>',
+			'tagsInputId' => esc_attr($id),
+			'tagsInputClasses' => 'advanced-select__tags-input',
+			'optionTemplate' => '<div class="flex items-center"><div class="size-8 me-2" data-icon></div><div><div class="text-sm font-semibold text-gray-800 dark:text-neutral-200" data-title></div><div class="text-xs text-gray-500 dark:text-neutral-500" data-description></div></div><div class="ms-auto"><span class="hidden hs-selected:block"><svg class="shrink-0 size-4 text-gold" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/></svg></span></div></div>',
+			'extraMarkup' => '<div class="absolute top-1/2 end-3 -translate-y-1/2"><svg class="shrink-0 size-3.5 text-gray-500 dark:text-neutral-500" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg></div>'
+		] : [
+			'placeholder' => $placeholder ? esc_attr($placeholder) : 'Select ' . esc_attr(ucfirst($taxonomy)),
+			'toggleTag' => '<button type="button" aria-expanded="false"></button>',
+			'toggleClasses' => 'advanced-select__toggle',
+			'dropdownClasses' => 'advanced-select__dropdown',
+			'optionClasses' => 'advanced-select__option',
+			'hasSearch' => true,
+			'searchPlaceholder' => 'Search...',
+			'searchClasses' => 'advanced-select__search',
+			'searchWrapperClasses' => 'advanced-select__search-wrapper',
+			'optionTemplate' => '<div class="flex items-center"><div class="size-8 me-2" data-icon></div><div><div class="text-sm font-semibold text-gray-800 dark:text-neutral-200" data-title></div><div class="text-xs text-gray-500 dark:text-neutral-500" data-description></div></div><div class="ms-auto"><span class="hidden hs-selected:block"><svg class="shrink-0 size-4 text-gold" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/></svg></span></div></div>',
+			'extraMarkup' => '<div class="absolute top-1/2 end-3 -translate-y-1/2"><svg class="shrink-0 size-3.5 text-gray-500 dark:text-neutral-500" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg></div>'
+		];
+
 		// Generate select field with wrapper
 		$html = '<span class="wpcf7-form-control-wrap" data-name="' . esc_attr($name) . '">';
 		$html .= '<select';
@@ -91,6 +122,7 @@ class ORU_CF7_Fields {
 		}
 		$html .= ' class="wpcf7-form-control ' . esc_attr($classes) . '"';
 		$html .= ' data-name="' . esc_attr($name) . '"';
+		$html .= ' data-hs-select=\'' . esc_attr(json_encode($hs_select_config)) . '\'';
 		if ($is_multi) {
 			$html .= ' multiple';
 		}
@@ -104,7 +136,7 @@ class ORU_CF7_Fields {
 		if ($placeholder) {
 			$html .= ($is_multi ? '>' : ' disabled selected>') . esc_html($placeholder);
 		} else {
-			$html .= ($is_multi ? '>' : ' disabled selected>') . esc_html('Select ' . ucfirst($taxonomy));
+			$html .= ($is_multi ? '>' : ' disabled selected>') . esc_html('Select ' . ucfirst($is_multi ? $taxonomy_plural : $taxonomy));
 		}
 		$html .= '</option>';
 
@@ -161,27 +193,27 @@ class ORU_CF7_Fields {
 	}
 
 	private function get_taxonomy_from_tag($tag_type) {
-		// Map tag type to taxonomy
+		// Map tag type to taxonomy with singular and plural forms
 		$map = [
-			'language_single' => 'language',
-			'language_single*' => 'language',
-			'language_multi' => 'language',
-			'language_multi*' => 'language',
-			'country_single' => 'country',
-			'country_single*' => 'country',
-			'country_multi' => 'country',
-			'country_multi*' => 'country',
-			'industry_single' => 'industry',
-			'industry_single*' => 'industry',
-			'industry_multi' => 'industry',
-			'industry_multi*' => 'industry',
-			'sector_single' => 'sector',
-			'sector_single*' => 'sector',
-			'sector_multi' => 'sector',
-			'sector_multi*' => 'sector'
+			'language_single' => ['singular' => 'language', 'plural' => 'languages'],
+			'language_single*' => ['singular' => 'language', 'plural' => 'languages'],
+			'language_multi' => ['singular' => 'language', 'plural' => 'languages'],
+			'language_multi*' => ['singular' => 'language', 'plural' => 'languages'],
+			'country_single' => ['singular' => 'country', 'plural' => 'countries'],
+			'country_single*' => ['singular' => 'country', 'plural' => 'countries'],
+			'country_multi' => ['singular' => 'country', 'plural' => 'countries'],
+			'country_multi*' => ['singular' => 'country', 'plural' => 'countries'],
+			'industry_single' => ['singular' => 'industry', 'plural' => 'industries'],
+			'industry_single*' => ['singular' => 'industry', 'plural' => 'industries'],
+			'industry_multi' => ['singular' => 'industry', 'plural' => 'industries'],
+			'industry_multi*' => ['singular' => 'industry', 'plural' => 'industries'],
+			'sector_single' => ['singular' => 'sector', 'plural' => 'sectors'],
+			'sector_single*' => ['singular' => 'sector', 'plural' => 'sectors'],
+			'sector_multi' => ['singular' => 'sector', 'plural' => 'sectors'],
+			'sector_multi*' => ['singular' => 'sector', 'plural' => 'sectors']
 		];
 
-		return $map[$tag_type] ?? '';
+		return $map[$tag_type] ?? ['singular' => '', 'plural' => ''];
 	}
 
 	public function register_tag_generator() {
